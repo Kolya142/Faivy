@@ -1,33 +1,7 @@
-extern write :: libc_write :: u64 (fd: i32, data: Ptr(void), size: u64);
-extern strlen :: libc_strlen :: u64 (str: cstring);
-
-Slice :: struct {
-    arr: Ptr(void);
-    size: u64;
-}
-
-SString :: struct {
-    str: cstring;
-    size: u64;
-}
-
-local :: sstring_from_cstring :: SString (str: cstring) {
-    return(SString(str, libc_strlen(str)));
-}
-
-local :: print_str :: void (value: SString) {
-    libc_write(1, value->str, value->size);
-}
-
-local :: hello :: void (name: SString) {
-    print_str(sstring_from_cstring("Hello, "));
-    print_str(name);
-    print_str(sstring_from_cstring("!\n"));
-}
+extern write :: libc_write :: u64 (fd: isize/* TODO: i32 */, ptr: usize, size: usize);
+extern strlen :: libc_strlen :: u64 (str: usize);
 
 global :: main :: i32 () {
-    global :: name :: SString = sstring_from_cstring("Faivy");
-    1 :: if {
-        hello(name);
-    }
+    libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
+    return(69);
 }
