@@ -7,7 +7,7 @@
 [ ] Open-Source release
 [ ] while
 [ ] for
-[ ] more serious target than C
+[P] more serious target than C
 [ ] #emit
 [ ] #import
 [ ] name spacing
