@@ -1,0 +1,14 @@
+[x] if
+[x] functions
+[P] calling
+[P] type checking
+[ ] Generic
+[ ] Example
+[ ] Open-Source release
+[ ] while
+[ ] for
+[ ] more serious target than C
+[ ] #emit
+[ ] #import
+[ ] name spacing
+[ ] stdlib
