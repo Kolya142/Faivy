@@ -3,5 +3,11 @@ extern strlen :: libc_strlen :: u64 (str: usize);
 
 global :: main :: i32 () {
     libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
-    return(69);
+    0 :: if {
+        return(69);
+    }
+    else {
+        return(42);
+    }
+    return(1);
 }

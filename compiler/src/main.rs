@@ -316,36 +316,38 @@ impl CodeGen<'_> {
 	    }
 	}
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
-	    /*
-	    let rcond = self.get_value(&state, ir);
-	    if let Some(ref mut sfunc) = self.func {
-		let rthen = self.get_free_reg();
-		let rotherwise = self.get_free_reg();
-		let rend = self.get_free_reg();
-		self.last_block = Some(
-		    Box::new(
-			(*func).add_block(rthen).clone()
-		    )
-		);
-		for thenish in then {
-		    self.codegen(&state, thenish.clone());
-		}
-		self.last_block = Some(
-		    Box::new(
-			(*func).add_block(rotherwise).clone()
-		    )
-		);
-		if 
-		for elseish in otherwise {
-		    self.codegen(&state, elseish.clone());
-		}
-		self.last_block = Some(
-		    Box::new(
-			(*func).add_block(rend).clone()
-		    )
-		);
-	    }
-	    */
+	    let rcond = self.get_value(&state, *cond.clone());
+	    let rthen = self.get_free_register();
+	    let rotherwise = self.get_free_register();
+	    let rend = self.get_free_register();
+	    let mut sfunc = self.func.clone().unwrap();
+	    sfunc.add_instr(
+		qbe::Instr::Jnz(
+		    qbe::Value::Temporary(rcond), rthen.clone(), rotherwise.clone()
+		)
+	    );
+	    self.last_block = Some(
+		Box::new(
+		    (*sfunc).add_block(rthen).clone()
+		)
+	    );
+	    self.func = Some(sfunc.clone());
+	    self.codegen(&state, *then.clone());
+	    sfunc = self.func.clone().unwrap();
+	    self.last_block = Some(
+		Box::new(
+		    (*sfunc).add_block(rotherwise).clone()
+		)
+	    );
+	    self.func = Some(sfunc.clone());
+	    self.codegen(&state, *otherwise.clone().unwrap());
+	    sfunc = self.func.clone().unwrap();
+	    self.last_block = Some(
+		Box::new(
+		    (*sfunc).add_block(rend).clone()
+		)
+	    );
+	    self.func = Some(sfunc.clone());
 	}
 	else if let IR::Block(ref insts) = ir {
 	    for inst in insts {
