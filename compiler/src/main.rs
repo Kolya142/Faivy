@@ -323,7 +323,7 @@ impl CodeGen<'_> {
 	    let mut sfunc = self.func.clone().unwrap();
 	    sfunc.add_instr(
 		qbe::Instr::Jnz(
-		    qbe::Value::Temporary(rcond), rthen.clone(), rotherwise.clone()
+		    qbe::Value::Temporary(rcond), rthen.clone(), if otherwise.is_some() {rotherwise.clone()} else {rend.clone()}
 		)
 	    );
 	    self.last_block = Some(
@@ -333,15 +333,23 @@ impl CodeGen<'_> {
 	    );
 	    self.func = Some(sfunc.clone());
 	    self.codegen(&state, *then.clone());
-	    sfunc = self.func.clone().unwrap();
-	    self.last_block = Some(
-		Box::new(
-		    (*sfunc).add_block(rotherwise).clone()
-		)
-	    );
-	    self.func = Some(sfunc.clone());
-	    self.codegen(&state, *otherwise.clone().unwrap());
-	    sfunc = self.func.clone().unwrap();
+	    if otherwise.is_some() {
+		sfunc = self.func.clone().unwrap();
+		sfunc.add_instr(
+		    qbe::Instr::Jmp(
+			rend.clone()
+		    )
+		);
+		
+		self.last_block = Some(
+		    Box::new(
+			(*sfunc).add_block(rotherwise).clone()
+		    )
+		);
+		self.func = Some(sfunc.clone());
+		self.codegen(&state, *otherwise.clone().unwrap());
+		sfunc = self.func.clone().unwrap();
+	    }
 	    self.last_block = Some(
 		Box::new(
 		    (*sfunc).add_block(rend).clone()
