@@ -161,14 +161,13 @@ impl CodeGen<'_> {
 	}
 	return TYPE_PTR.clone();
     }
-    fn get_value(&mut self, state: &CodeGenState, ir: IR) -> String {
+    fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
 	let reg = self.get_free_register();
-	let mut state = state.clone();
 	if let IR::BinOp(op, lhs, rhs) = ir {
 	    let mut res: Vec<u8> = vec![];
 	    if op == BinOpKind::Add {
-		let lhs = self.get_value(&state, *lhs);
-		let rhs = self.get_value(&state, *rhs);
+		let lhs = self.get_value(state, *lhs);
+		let rhs = self.get_value(state, *rhs);
 		if let Some(ref mut func) = self.func {
 		    func.assign_instr(
 			qbe::Value::Temporary(reg.clone()),
@@ -181,8 +180,8 @@ impl CodeGen<'_> {
 		}
 	    }
 	    else if op == BinOpKind::Sub {
-		let lhs = self.get_value(&state, *lhs);
-		let rhs = self.get_value(&state, *rhs);
+		let lhs = self.get_value(state, *lhs);
+		let rhs = self.get_value(state, *rhs);
 		if let Some(ref mut func) = self.func {
 		    func.assign_instr(
 			qbe::Value::Temporary(reg.clone()),
@@ -195,8 +194,8 @@ impl CodeGen<'_> {
 		}
 	    }
 	    else if op == BinOpKind::Mul {
-		let lhs = self.get_value(&state, *lhs);
-		let rhs = self.get_value(&state, *rhs);
+		let lhs = self.get_value(state, *lhs);
+		let rhs = self.get_value(state, *rhs);
 		if let Some(ref mut func) = self.func {
 		    func.assign_instr(
 			qbe::Value::Temporary(reg.clone()),
@@ -219,6 +218,7 @@ impl CodeGen<'_> {
 		    qbe::Instr::Copy(qbe::Value::Const(int.clone())),
 		);
 	    }
+	    state.typ = Some(IR::ID("usize".to_string()));
 	}
 	else if let IR::Str(ref id) = ir {
 	    let items = vec![
@@ -233,10 +233,11 @@ impl CodeGen<'_> {
 		    qbe::Instr::Copy(qbe::Value::Global(reg.clone())),
 		);
 	    }
+	    state.typ = Some(IR::ID("usize".to_string()));
 	}
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
-		let res = self.get_value(&state, args[0].clone());
+		let res = self.get_value(state, args[0].clone());
 		if let Some(ref mut func) = self.func {
 		    (*func).add_instr(qbe::Instr::Ret(Some(qbe::Value::Temporary(res))));
 		}
@@ -247,15 +248,16 @@ impl CodeGen<'_> {
 		return reg;
 	    }
 	    if *name == "cast".to_string() {
-		let value = self.get_value(&state, args[0].clone());
+		let value = self.get_value(state, args[0].clone());
 		let ntyp = Self::get_qbe_type(args[1].clone());
 		if let Some(ref mut func) = self.func {
 		    func.assign_instr(
 			qbe::Value::Temporary(reg.clone()),
 			ntyp,
-			qbe::Instr::Cast(qbe::Value::Temporary(value)),
+			qbe::Instr::Copy(qbe::Value::Temporary(value)),
 		    );
 		}
+		state.typ = Some(args[1].clone());
 		return reg;
 	    }
 	    for func in self.functions.clone() {
@@ -265,15 +267,19 @@ impl CodeGen<'_> {
 		    }
 		    let mut arg_regs = vec![];
 		    for arg in 0..func.args.len() {
-			let areg = self.get_value(&state, args[arg].clone());
+			let areg = self.get_value(state, args[arg].clone());
+			if state.typ.clone() != Some(func.args[arg].typ.clone().unwrap()) {
+			    panic!("Excepted type {:?} at call {} but got type {:?}", func.args[arg].typ.clone().unwrap(), *name, state.typ.clone().unwrap());
+			}
 			arg_regs.push((Self::get_qbe_type(func.args[arg].typ.clone().unwrap()), qbe::Value::Temporary(areg)));
 		    }
 		    if let Some(ref mut sfunc) = self.func {
 			sfunc.assign_instr(
 			    qbe::Value::Temporary(reg.clone()),
-			    Self::get_qbe_type(func.typ),
+			    Self::get_qbe_type(func.typ.clone()),
 			    qbe::Instr::Call(func.real_name, arg_regs, None),
 			);
+			state.typ = Some(func.typ);
 			return reg;
 		    }
 		}
@@ -291,12 +297,12 @@ impl CodeGen<'_> {
 		    res.push(b')');
 		    res.push(b'{');
 		    for arg in 0..args.len()-1 {
-			res.extend(self.get_value(&state, args[arg].clone()).unwrap());
+			res.extend(self.get_value(state, args[arg].clone()).unwrap());
 			res.push(b',');
 		    }
 		    if args.len() > 0 {
 			let arg = args.len()-1;
-			res.extend(self.get_value(&state, args[arg].clone()).unwrap());
+			res.extend(self.get_value(state, args[arg].clone()).unwrap());
 		    }
 		    res.push(b'}');
 		    res.push(b'\n');
@@ -365,7 +371,7 @@ impl CodeGen<'_> {
 	    }
 	}
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
-	    let rcond = self.get_value(&state, *cond.clone());
+	    let rcond = self.get_value(&mut state, *cond.clone());
 	    let rthen = self.get_free_register();
 	    let rotherwise = self.get_free_register();
 	    let rend = self.get_free_register();
@@ -415,7 +421,7 @@ impl CodeGen<'_> {
 		if self.end_of_block {
 		    break;
 		}
-		self.codegen(&state, inst.clone());
+		self.codegen(&mut state, inst.clone());
 	    }
 	}
 	else if ir == IR::Dummy {
@@ -424,7 +430,7 @@ impl CodeGen<'_> {
 	    if self.end_of_block {
 		return state;
 	    }
-	    let _ = self.get_value(&state, ir);
+	    let _ = self.get_value(&mut state, ir);
 	}
 	state
     }

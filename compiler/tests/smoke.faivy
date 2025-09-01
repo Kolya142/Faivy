@@ -1,17 +1,17 @@
-extern write :: libc_write :: u64 (fd: isize/* TODO: i32 */, ptr: usize, size: usize);
-extern strlen :: libc_strlen :: u64 (str: usize);
+extern write :: libc_write :: usize (fd: i32, ptr: usize, size: usize);
+extern strlen :: libc_strlen :: usize (str: usize);
 
 global :: main :: i32 () {
     1 :: if {
-        libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
+        libc_write(cast(1, i32), "Hello, world!", libc_strlen("Hello, world!"));
     }
     0 :: if {
         return(42);
-        libc_write(1, "Nah!!", libc_strlen("Nah!!"));
+        libc_write(cast(1, i32), "Nah!!", libc_strlen("Nah!!"));
     }
     else {
         return(0);
-        libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
+        libc_write(cast(1, i32), "Hello, world!", libc_strlen("Hello, world!"));
         return(69+42-10);
     }
 }
