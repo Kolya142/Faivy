@@ -2,12 +2,13 @@ extern write :: libc_write :: u64 (fd: isize/* TODO: i32 */, ptr: usize, size: u
 extern strlen :: libc_strlen :: u64 (str: usize);
 
 global :: main :: i32 () {
-    libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
     0 :: if {
-        return(69);
+        libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
+    }
+    0 :: if {
     }
     else {
         return(42);
     }
-    return(1);
+    return(69);
 }
