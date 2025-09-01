@@ -316,6 +316,36 @@ impl CodeGen<'_> {
 	    }
 	}
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
+	    /*
+	    let rcond = self.get_value(&state, ir);
+	    if let Some(ref mut sfunc) = self.func {
+		let rthen = self.get_free_reg();
+		let rotherwise = self.get_free_reg();
+		let rend = self.get_free_reg();
+		self.last_block = Some(
+		    Box::new(
+			(*func).add_block(rthen).clone()
+		    )
+		);
+		for thenish in then {
+		    self.codegen(&state, thenish.clone());
+		}
+		self.last_block = Some(
+		    Box::new(
+			(*func).add_block(rotherwise).clone()
+		    )
+		);
+		if 
+		for elseish in otherwise {
+		    self.codegen(&state, elseish.clone());
+		}
+		self.last_block = Some(
+		    Box::new(
+			(*func).add_block(rend).clone()
+		    )
+		);
+	    }
+	    */
 	}
 	else if let IR::Block(ref insts) = ir {
 	    for inst in insts {
