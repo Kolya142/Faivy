@@ -207,6 +207,34 @@ impl CodeGen<'_> {
 		    );
 		}
 	    }
+	    else if op == BinOpKind::Div {
+		let lhs = self.get_value(state, *lhs);
+		let rhs = self.get_value(state, *rhs);
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			TYPE_PTR.clone(),
+			qbe::Instr::Div(
+			    qbe::Value::Temporary(lhs.clone()),
+			    qbe::Value::Temporary(rhs.clone())
+			),
+		    );
+		}
+	    }
+	    else if op == BinOpKind::Mod {
+		let lhs = self.get_value(state, *lhs);
+		let rhs = self.get_value(state, *rhs);
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			TYPE_PTR.clone(),
+			qbe::Instr::Rem(
+			    qbe::Value::Temporary(lhs.clone()),
+			    qbe::Value::Temporary(rhs.clone())
+			),
+		    );
+		}
+	    }
 	}
 	else if let IR::ID(ref id) = ir {
 	}
@@ -546,7 +574,9 @@ impl IRBuilder {
 		let binopkind = if op == "+".to_string() {
 		    BinOpKind::Add } else if op == "*".to_string() {
 		    BinOpKind::Mul } else if op == "-".to_string() {
-		    BinOpKind::Sub } else {todo!()};
+		    BinOpKind::Sub } else if op == "/".to_string() {
+		    BinOpKind::Div } else if op == "%".to_string() {
+		    BinOpKind::Mod } else {todo!()};
 		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
 	    },
 	    Rule::expr_atom => {
