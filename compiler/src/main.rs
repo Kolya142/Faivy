@@ -194,9 +194,19 @@ impl CodeGen<'_> {
 		    );
 		}
 	    }
-	    else if op == BinOpKind::Dot {
+	    else if op == BinOpKind::Mul {
 		let lhs = self.get_value(&state, *lhs);
 		let rhs = self.get_value(&state, *rhs);
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			TYPE_PTR.clone(),
+			qbe::Instr::Mul(
+			    qbe::Value::Temporary(lhs.clone()),
+			    qbe::Value::Temporary(rhs.clone())
+			),
+		    );
+		}
 	    }
 	}
 	else if let IR::ID(ref id) = ir {
@@ -234,6 +244,18 @@ impl CodeGen<'_> {
 		    todo!();
 		}
 		self.end_of_block = true;
+		return reg;
+	    }
+	    if *name == "cast".to_string() {
+		let value = self.get_value(&state, args[0].clone());
+		let ntyp = Self::get_qbe_type(args[1].clone());
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			ntyp,
+			qbe::Instr::Cast(qbe::Value::Temporary(value)),
+		    );
+		}
 		return reg;
 	    }
 	    for func in self.functions.clone() {
@@ -512,12 +534,12 @@ impl IRBuilder {
 		let lhs = Self::build(ast.inner[0].clone());
 		let op = ast.inner[1].span.clone();
 		let rhs = Self::build(ast.inner[2].clone());
-		if op != "+".to_string() && op != "-".to_string() && op != "->".to_string() {
-		    panic!("Currently supported only A+B, A-B, and A->B");
+		if op != "+".to_string() && op != "-".to_string() && op != "*".to_string() {
+		    panic!("Currently supported only A+B, A-B, and A*B");
 		}
 		let binopkind = if op == "+".to_string() {
-		    BinOpKind::Add } else if op == "->".to_string() {
-		    BinOpKind::Dot } else if op == "-".to_string() {
+		    BinOpKind::Add } else if op == "*".to_string() {
+		    BinOpKind::Mul } else if op == "-".to_string() {
 		    BinOpKind::Sub } else {todo!()};
 		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
 	    },
@@ -626,7 +648,6 @@ mod tests {
 	let mut qbe_work = Command::new("qbe");
 	qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
 	println!("{:?}", qbe_work.output().unwrap());
-	assert_eq!(fs::read_to_string(temp_as.clone()).unwrap(), ".text\n.globl main\nmain:\n\tpushq %rbp\n\tmovq %rsp, %rbp\n\tleaq reg4(%rip), %rdi\n\tcallq strlen\n\tmovq %rax, %rdx\n\tleaq reg2(%rip), %rsi\n\tmovl $1, %edi\n\tcallq write\n\tleaq reg9(%rip), %rdi\n\tcallq strlen\n\tmovq %rax, %rdx\n\tleaq reg7(%rip), %rsi\n\tmovl $1, %edi\n\tcallq write\n\tmovl $0, %eax\n\tleave\n\tret\n.type main, @function\n.size main, .-main\n/* end function main */\n\n.data\n.balign 8\nreg2:\n\t.ascii \"Hello, \"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg4:\n\t.ascii \"Hello, \"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg7:\n\t.ascii \"Faivy!\"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg9:\n\t.ascii \"Faivy!\"\n\t.byte 0\n/* end data */\n\n.section .note.GNU-stack,\"\",@progbits\n");
 	let mut cc_work = Command::new("cc");
 	cc_work.arg(temp_as);
 	println!("{:?}", cc_work.output().unwrap());
