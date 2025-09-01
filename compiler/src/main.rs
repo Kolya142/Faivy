@@ -92,6 +92,7 @@ struct CodeGenState {
 struct CodeGen<'a> {
     output: Module<'a>,
     func: Option<Box<Function<'a>>>,
+    end_of_block: bool,
     last_block: Option<Box<qbe::Block<'a>>>,
     functions: Vec<CodeGenFunction>,
     global_variables: Vec<IR>,
@@ -107,6 +108,7 @@ impl CodeGen<'_> {
 	    output: Module::new(),
 	    func: None,
 	    last_block: None,
+	    end_of_block: false,
 	    functions: vec![],
 	    global_variables: vec![],
 	    structs: vec![],
@@ -167,10 +169,30 @@ impl CodeGen<'_> {
 	    if op == BinOpKind::Add {
 		let lhs = self.get_value(&state, *lhs);
 		let rhs = self.get_value(&state, *rhs);
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			TYPE_PTR.clone(),
+			qbe::Instr::Add(
+			    qbe::Value::Temporary(lhs.clone()),
+			    qbe::Value::Temporary(rhs.clone())
+			),
+		    );
+		}
 	    }
 	    else if op == BinOpKind::Sub {
 		let lhs = self.get_value(&state, *lhs);
 		let rhs = self.get_value(&state, *rhs);
+		if let Some(ref mut func) = self.func {
+		    func.assign_instr(
+			qbe::Value::Temporary(reg.clone()),
+			TYPE_PTR.clone(),
+			qbe::Instr::Sub(
+			    qbe::Value::Temporary(lhs.clone()),
+			    qbe::Value::Temporary(rhs.clone())
+			),
+		    );
+		}
 	    }
 	    else if op == BinOpKind::Dot {
 		let lhs = self.get_value(&state, *lhs);
@@ -211,6 +233,7 @@ impl CodeGen<'_> {
 		else {
 		    todo!();
 		}
+		self.end_of_block = true;
 		return reg;
 	    }
 	    for func in self.functions.clone() {
@@ -281,7 +304,10 @@ impl CodeGen<'_> {
 		    );
 		}
 		self.codegen(&state, *body.clone().unwrap());
-		self.output.add_function(*self.func.clone().unwrap());
+		let mut func = *self.func.clone().unwrap();
+		func.add_instr(qbe::Instr::Ret(Some(qbe::Value::Const(0))));
+		self.end_of_block = false;
+		self.output.add_function(func);
 	    }
 	    else if *dt == DeclarationType::Local {
 		let rname = self.get_free_register();
@@ -293,6 +319,7 @@ impl CodeGen<'_> {
 		    Some(Self::get_qbe_type(*typ.clone())),
 		)));
 		self.codegen(&state, *body.clone().unwrap());
+		self.end_of_block = false;
 		self.output.add_function(*self.func.clone().unwrap());
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
@@ -333,13 +360,16 @@ impl CodeGen<'_> {
 	    );
 	    self.func = Some(sfunc.clone());
 	    self.codegen(&state, *then.clone());
+	    sfunc = self.func.clone().unwrap();
 	    if otherwise.is_some() {
-		sfunc = self.func.clone().unwrap();
-		sfunc.add_instr(
-		    qbe::Instr::Jmp(
-			rend.clone()
-		    )
-		);
+		if !self.end_of_block {
+		    sfunc.add_instr(
+			qbe::Instr::Jmp(
+			    rend.clone()
+			)
+		    );
+		}
+		self.end_of_block = false;
 		
 		self.last_block = Some(
 		    Box::new(
@@ -348,6 +378,7 @@ impl CodeGen<'_> {
 		);
 		self.func = Some(sfunc.clone());
 		self.codegen(&state, *otherwise.clone().unwrap());
+		self.end_of_block = false;
 		sfunc = self.func.clone().unwrap();
 	    }
 	    self.last_block = Some(
@@ -359,12 +390,18 @@ impl CodeGen<'_> {
 	}
 	else if let IR::Block(ref insts) = ir {
 	    for inst in insts {
+		if self.end_of_block {
+		    break;
+		}
 		self.codegen(&state, inst.clone());
 	    }
 	}
 	else if ir == IR::Dummy {
 	}
 	else {
+	    if self.end_of_block {
+		return state;
+	    }
 	    let _ = self.get_value(&state, ir);
 	}
 	state
@@ -519,7 +556,6 @@ impl IRBuilder {
 }
 
 fn main() {
-    
     let ast = FaivyParser::pretty_parse(
 	FaivyParser::parse(Rule::program, &fs::read_to_string("input.faivy").unwrap()
 	).unwrap()
@@ -543,3 +579,59 @@ fn main() {
     println!("{:?}", cc_work.output().unwrap());
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke_test() {
+	let ast = FaivyParser::pretty_parse(
+	    FaivyParser::parse(Rule::program, &fs::read_to_string("tests/smoke.faivy").unwrap()
+	    ).unwrap()
+	);
+	let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
+	let mut codegen = CodeGen::new();
+	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+	let mut code = String::new();
+	code += &format!("{}", codegen.output);
+	let mut rng = rand::thread_rng();
+	let temp_qbe = format!("/tmp/{}.qbe", rng.r#gen::<u32>().to_string());
+	let temp_as = "output.s".to_string();
+	let _ = fs::write(temp_qbe.clone(), code);
+	let mut qbe_work = Command::new("qbe");
+	qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
+	println!("{:?}", qbe_work.output().unwrap());
+	let mut cc_work = Command::new("cc");
+	cc_work.arg(temp_as);
+	println!("{:?}", cc_work.output().unwrap());
+	assert_eq!(Command::new("./a.out").output().unwrap().status.success(), true);
+    }
+
+    #[test]
+    fn unit_test00() {
+	let ast = FaivyParser::pretty_parse(
+	    FaivyParser::parse(Rule::program, &fs::read_to_string("tests/unit00.faivy").unwrap()
+	    ).unwrap()
+	);
+	let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
+	let mut codegen = CodeGen::new();
+	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+	let mut code = String::new();
+	code += &format!("{}", codegen.output);
+	println!("{:?}", code);
+	let mut rng = rand::thread_rng();
+	let temp_qbe = format!("/tmp/{}.qbe", rng.r#gen::<u32>().to_string());
+	let temp_as = "output.s".to_string();
+	let _ = fs::write(temp_qbe.clone(), code);
+	let mut qbe_work = Command::new("qbe");
+	qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
+	println!("{:?}", qbe_work.output().unwrap());
+	assert_eq!(fs::read_to_string(temp_as.clone()).unwrap(), ".text\n.globl main\nmain:\n\tpushq %rbp\n\tmovq %rsp, %rbp\n\tleaq reg4(%rip), %rdi\n\tcallq strlen\n\tmovq %rax, %rdx\n\tleaq reg2(%rip), %rsi\n\tmovl $1, %edi\n\tcallq write\n\tleaq reg9(%rip), %rdi\n\tcallq strlen\n\tmovq %rax, %rdx\n\tleaq reg7(%rip), %rsi\n\tmovl $1, %edi\n\tcallq write\n\tmovl $0, %eax\n\tleave\n\tret\n.type main, @function\n.size main, .-main\n/* end function main */\n\n.data\n.balign 8\nreg2:\n\t.ascii \"Hello, \"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg4:\n\t.ascii \"Hello, \"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg7:\n\t.ascii \"Faivy!\"\n\t.byte 0\n/* end data */\n\n.data\n.balign 8\nreg9:\n\t.ascii \"Faivy!\"\n\t.byte 0\n/* end data */\n\n.section .note.GNU-stack,\"\",@progbits\n");
+	let mut cc_work = Command::new("cc");
+	cc_work.arg(temp_as);
+	println!("{:?}", cc_work.output().unwrap());
+	let a_res = Command::new("./a.out").output().unwrap();
+	assert_eq!(a_res.status.success(), true);
+	assert_eq!(String::from_utf8(a_res.stdout).unwrap(), fs::read_to_string("tests/unit00.out").unwrap());
+    }
+}

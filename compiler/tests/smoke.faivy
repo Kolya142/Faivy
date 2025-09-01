@@ -7,8 +7,11 @@ global :: main :: i32 () {
     }
     0 :: if {
         return(42);
+        libc_write(1, "Nah!!", libc_strlen("Nah!!"));
     }
     else {
-        return(69+42);
+        return(0);
+        libc_write(1, "Hello, world!", libc_strlen("Hello, world!"));
+        return(69+42-10);
     }
 }

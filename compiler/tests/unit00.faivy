@@ -1,0 +1,7 @@
+extern write :: libc_write :: u64 (fd: isize/* TODO: i32 */, ptr: usize, size: usize);
+extern strlen :: libc_strlen :: u64 (str: usize);
+
+global :: main :: i32 () {
+    libc_write(1, "Hello, ", libc_strlen("Hello, "));
+    libc_write(1, "Faivy!", libc_strlen("Faivy!"));
+}
