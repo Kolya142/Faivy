@@ -2,7 +2,34 @@ extern exit :: exit :: void (code: i32);
 extern write :: libc_write :: isize (fd: i32, buf: usize, count: usize);
 extern read :: libc_read :: isize (fd: i32, buf: usize, count: usize);
 extern strlen :: get_length_of_string :: usize (buf: usize);
+extern strcmp :: libc_compare_strings :: i32 (a: usize, b: usize);
+extern malloc :: libc_alloc :: usize (size: usize);
+extern free :: free :: void (buf: usize);
+extern time :: libc_time :: usize (timer: usize);
+forward :: print_str :: void (data: usize);
 
-local :: print_str :: void (data: usize) {
+global :: get_unix_seconds :: usize () {
+    return(libc_time(0));
+}
+
+global :: panic :: void (msg: usize) {
+    print_str("Panic at TODO(TODO:TODO): ");
+    print_str(msg);
+    exit(cast(1, i32));
+}
+
+global :: alloc :: usize (size: usize) {
+    local :: result :: usize = libc_alloc(size);
+    result == 0 :: if {
+        panic("OOM");
+    }
+    return(result);
+}
+
+global :: is_strings_equal/*strcmp*/ :: bool (a: usize, b: usize) {
+    return(libc_compare_strings(a, b) == cast(0, i32));
+}
+
+global :: print_str :: void (data: usize) {
     libc_write(cast(1, i32), data, get_length_of_string(data));
 }

@@ -15,6 +15,7 @@ enum DeclarationType {
     Extern(String),
     Global,
     Local,
+    Forward,
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -103,7 +104,8 @@ struct CodeGenStruct {
 #[derive(Debug,Clone,PartialEq)]
 struct CodeGenState {
     variables: Vec<CodeGenFakeableVariable>,
-    typ: Option<IR>
+    typ: Option<IR>,
+    expected_typ: Option<IR>
 }
 
 #[derive(Debug,Clone)]
@@ -278,7 +280,8 @@ impl CodeGen {
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
 		let res = self.get_value(state, args[0].clone());
-		self.output += &format!("    ret i32 {}\n", res); // TODO
+		println!("{:?} - return {:?}", state.expected_typ.clone(), args);
+		self.output += &format!("    ret {} {}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), res);
 		self.end_of_block = true;
 		return reg;
 	    }
@@ -358,7 +361,8 @@ impl CodeGen {
 	if let IR::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir {
 	    let variables = self.local_variables.clone();
 	    if *dt == DeclarationType::Global {
-		self.output += &format!("define ccc i32 @{}({}) {{\nextern:\n", name, Self::get_function_def_args(args.to_vec()));
+		state.expected_typ = Some(*typ.clone());
+		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), name, Self::get_function_def_args(args.to_vec()));
 		let argv =
 		    args.into_iter()
 		    .map(
@@ -376,12 +380,18 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		self.output += &format!("    ret i32 0\n}}\n");
+		if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
+		}
+		else {
+		    self.output += &format!("    ret void\n}}\n");
+		}
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: name.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if *dt == DeclarationType::Local {
+		state.expected_typ = Some(*typ.clone());
 		let reg = self.get_free_register();
-		self.output += &format!("define ccc i32 @{}({}) {{\nextern:\n", reg, Self::get_function_def_args(args.to_vec()));
+		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), reg, Self::get_function_def_args(args.to_vec()));
 		let argv =
 		    args.into_iter()
 		    .map(
@@ -399,12 +409,20 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		self.output += &format!("    ret i32 0\n}}\n");
+		if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
+		}
+		else {
+		    self.output += &format!("    ret void\n}}\n");
+		}
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: reg.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
 		self.output += &format!("declare ccc i32 @{}({})\n", ename, Self::get_function_def_args(args.to_vec()));
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: ename.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
+	    }
+	    else if let DeclarationType::Forward = *dt {
+		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: name.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    self.local_variables = variables;
 	}
@@ -440,7 +458,7 @@ impl CodeGen {
 		).unwrap()
 	    );
 	    let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-	    self.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+	    self.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
 	}
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
 	    let variables = self.local_variables.clone();
@@ -605,6 +623,9 @@ impl IRBuilder {
 	    Rule::decl_local_type => {
 		IR::Declaration(DeclarationType::Local)
 	    },
+	    Rule::decl_forward_type => {
+		IR::Declaration(DeclarationType::Forward)
+	    },
 	    Rule::decl_type => {
 		Self::build(ast.inner[0].clone())
 	    },
@@ -696,7 +717,7 @@ fn main() {
     );
     let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
     let mut codegen = CodeGen::new();
-    codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+    codegen.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
     let mut code = String::new();
     code += &codegen.data_output;
     code += &codegen.output;

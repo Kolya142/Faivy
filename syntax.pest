@@ -1,41 +1,42 @@
-WHITESPACE     = _{ " " | "\t" | "\r" | "\n" | COMMENT }
-COMMENT        = _{ "//" ~ (!"\n" ~ ANY)* ~ ("\n" | EOI)
+WHITESPACE		= _{ " " | "\t" | "\r" | "\n" | COMMENT }
+COMMENT			= _{ "//" ~ (!"\n" ~ ANY)* ~ ("\n" | EOI)
                 | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
-program        =  { SOI ~ stmt* ~ EOI }
-stmt           =  { if_stmt | for_stmt | while_stmt | variable | func | struct_decl | import | block | ( call ~ ";" ) | (set ~ ";") }
+program			=  { SOI ~ stmt* ~ EOI }
+stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | struct_decl | import | block | ( call ~ ";" ) | (set ~ ";") }
 
-decl_extern_type = { "extern" ~ identifier }
-decl_global_type = { "global" }
-decl_local_type  = { "local" }
-decl_type        = { decl_extern_type | decl_global_type | decl_local_type }
+decl_extern_type	= { "extern" ~ identifier }
+decl_global_type	= { "global" }
+decl_local_type		= { "local" }
+decl_forward_type	= { "forward" }
+decl_type		= { decl_extern_type | decl_global_type | decl_local_type | decl_forward_type }
 
-args           = { ( field ~ ( "," ~ field )* )? }
-expr_args      = { ( expr ~ ( "," ~ expr )* )? }
+args			= { ( field ~ ( "," ~ field )* )? }
+expr_args		= { ( expr ~ ( "," ~ expr )* )? }
 
-if_stmt        = { expr ~ "::" ~ "if" ~ block ~ ( "else" ~ stmt )? }
-for_stmt       = { "for" ~ "::" ~ expr ~ "," ~ expr ~ "," ~ expr ~ block }
-while_stmt     = { expr ~ "::" ~ "while" ~ block }
-block          = { "{" ~ stmt* ~ "}" }
+if_stmt			= { expr ~ "::" ~ "if" ~ block ~ ( "else" ~ stmt )? }
+for_stmt		= { "for" ~ "::" ~ expr ~ "," ~ expr ~ "," ~ expr ~ block }
+while_stmt		= { expr ~ "::" ~ "while" ~ block }
+block			= { "{" ~ stmt* ~ "}" }
 
-variable       = { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ ( "=" ~ expr )? ~ ";" }
-set            = { expr ~ ":=" ~ expr }
-func           = { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ "(" ~ args ~ ")" ~ ( block | ";" ) }
-field          = { identifier ~ ":" ~ expr }
-struct_decl    = { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
-import         = { "#import" ~ string ~ ";" }
+variable		= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ ( "=" ~ expr )? ~ ";" }
+set			= { expr ~ ":=" ~ expr }
+func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ "(" ~ args ~ ")" ~ ( block | ";" ) }
+field			= { identifier ~ ":" ~ expr }
+struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
+import			= { "#import" ~ string ~ ";" }
 
-binop          = { ( call | primary ) ~ binop_op ~ expr }
-unaryop        = { unaryop_op ~ expr }
-call           = { primary ~ "(" ~ expr_args ~ ")" }
+binop			= { ( call | primary ) ~ binop_op ~ expr }
+unaryop			= { unaryop_op ~ expr }
+call			= { primary ~ "(" ~ expr_args ~ ")" }
 
-expr_atom      = { binop | unaryop | call | primary }
-expr           = { expr_atom }
-primary        = { number | char_lit | string | identifier | "(" ~ expr ~ ")" }
+expr_atom		= { binop | unaryop | call | primary }
+expr			= { expr_atom }
+primary			= { number | char_lit | string | identifier | "(" ~ expr ~ ")" }
 
-binop_op       = @{ "==" | "&&" | "||" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
-unaryop_op     = @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
-identifier     = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
-number         = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? | "." ~ ASCII_DIGIT+ }
-string         = @{ "\"" ~ ( !("\"") ~ ANY )* ~ "\"" }
-char_lit       = @{ "'" ~ ( !("'" ) ~ ANY ) ~ "'" }
+binop_op		= @{ "==" | "&&" | "||" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
+unaryop_op		= @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
+identifier		= @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
+number			= @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? | "." ~ ASCII_DIGIT+ }
+string			= @{ "\"" ~ ( !("\"") ~ ANY )* ~ "\"" }
+char_lit		= @{ "'" ~ ( !("'" ) ~ ANY ) ~ "'" }
