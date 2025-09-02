@@ -212,14 +212,14 @@ impl CodeGen {
 		    self.output += &format!("    {} = fdiv {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Mod {
-		    self.output += &format!("    {} = fmod {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = frem {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Eq {
-		    self.output += &format!("    {} = fcmp eq {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = fcmp oeq {} {}, {}\n", reg, lt, lhs, rhs);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 		else if op == BinOpKind::NEq {
-		    self.output += &format!("    {} = fcmp ne {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = fcmp one {} {}, {}\n", reg, lt, lhs, rhs);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
@@ -237,7 +237,7 @@ impl CodeGen {
 		    self.output += &format!("    {} = div {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Mod {
-		    self.output += &format!("    {} = mod {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = rem {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Eq {
 		    self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
