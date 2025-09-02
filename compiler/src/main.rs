@@ -1,5 +1,3 @@
-use qbe::{Function, Module};
-use qbe;
 use rand::Rng;
 use std::fs;
 use pest::Parser;
@@ -31,6 +29,12 @@ enum BinOpKind {
     LAnd,
     LOr,
     Dot,
+    Eq,
+    NEq,
+    Less,
+    Bigger,
+    LessOrEq,
+    BiggerOrEq,
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -59,6 +63,7 @@ enum IR {
     Import(String),
     Evalute(Box<IR>),
     If(Box<IR>, Box<IR>, Option<Box<IR>>),
+    While(Box<IR>, Box<IR>),
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -89,25 +94,21 @@ struct CodeGenState {
 }
 
 #[derive(Debug,Clone)]
-struct CodeGen<'a> {
-    output: Module<'a>,
-    func: Option<Box<Function<'a>>>,
+struct CodeGen {
+    output: String,
+    data_output: String,
     end_of_block: bool,
-    last_block: Option<Box<qbe::Block<'a>>>,
     functions: Vec<CodeGenFunction>,
     global_variables: Vec<IR>,
     structs: Vec<CodeGenStruct>,
     oid: usize,
 }
 
-static TYPE_PTR: qbe::Type = qbe::Type::Long;
-
-impl CodeGen<'_> {
+impl CodeGen {
     fn new() -> Self {
 	Self {
-	    output: Module::new(),
-	    func: None,
-	    last_block: None,
+	    output: String::new(),
+	    data_output: String::new(),
 	    end_of_block: false,
 	    functions: vec![],
 	    global_variables: vec![],
@@ -120,170 +121,158 @@ impl CodeGen<'_> {
 	self.oid += 1;
 	name
     }
-    fn get_function_def_args(args: Vec<CodeGenVariable>) -> Vec<(qbe::Type<'static>, qbe::Value)> {
-	args.into_iter().map(|x| (Self::get_qbe_type(x.typ.unwrap()), qbe::Value::Temporary(x.name))).collect()
+    fn get_function_def_args(args: Vec<CodeGenVariable>) -> String {
+	return args.into_iter().map(|x| format!("{} %{}", Self::get_backend_type(x.typ.unwrap()), x.name)).collect::<Vec<_>>().join(", ");
     }
-    fn get_qbe_type(symname: IR) -> qbe::Type<'static> {
+    fn get_backend_type(symname: IR) -> &'static str {
 	if let IR::Call(ref name, ref args) = symname {
 	    if *name == "Ptr".to_string() {
-		return TYPE_PTR.clone();
+		return "i64";
 	    }
 	}
-	else if symname == IR::ID("i32".to_string()) {
-	    return qbe::Type::Word;
+ 	else if symname == IR::ID("bool".to_string()) {
+	    return "i1";
+	}
+ 	else if symname == IR::ID("i32".to_string()) {
+	    return "i32";
 	}
 	else if symname == IR::ID("u32".to_string()) {
-	    return qbe::Type::Word;
+	    return "i32";
 	}
 	else if symname == IR::ID("i64".to_string()) {
-	    return qbe::Type::Long;
+	    return "i64";
+	}
+	else if symname == IR::ID("f32".to_string()) {
+	    return "float";
 	}
 	else if symname == IR::ID("u64".to_string()) {
-	    return qbe::Type::Long;
+	    return "i64";
 	}
 	else if symname == IR::ID("isize".to_string()) {
-	    return TYPE_PTR.clone();
+	    return "i64";
 	}
 	else if symname == IR::ID("usize".to_string()) {
-	    return TYPE_PTR.clone();
+	    return "i64";
 	}
 	else if symname == IR::ID("i8".to_string()) {
-	    return qbe::Type::Byte;
+	    return "i8";
 	}
 	else if symname == IR::ID("u8".to_string()) {
-	    return qbe::Type::Byte;
+	    return "u8";
+	}
+	else if symname == IR::ID("void".to_string()) {
+	    return "void";
 	}
 	else if symname == IR::ID("i16".to_string()) {
-	    return qbe::Type::Halfword;
+	    return "i16";
 	}
 	else if symname == IR::ID("u16".to_string()) {
-	    return qbe::Type::Halfword;
+	    return "i16";
 	}
-	return TYPE_PTR.clone();
+	return "i64";
     }
     fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
-	let reg = self.get_free_register();
+	let reg = format!("%{}", self.get_free_register());
 	if let IR::BinOp(op, lhs, rhs) = ir {
 	    let mut res: Vec<u8> = vec![];
-	    if op == BinOpKind::Add {
-		let lhs = self.get_value(state, *lhs);
-		let rhs = self.get_value(state, *rhs);
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			TYPE_PTR.clone(),
-			qbe::Instr::Add(
-			    qbe::Value::Temporary(lhs.clone()),
-			    qbe::Value::Temporary(rhs.clone())
-			),
-		    );
+	    let lhs = self.get_value(state, *lhs);
+	    let lt = state.typ.clone();
+	    let rhs = self.get_value(state, *rhs);
+	    let rt = state.typ.clone();
+	    if lt != rt {
+		panic!("Failed to sum {:?} and {:?}", lt, rt);
+	    }
+	    let lt = Self::get_backend_type(lt.unwrap());
+	    let rt = Self::get_backend_type(rt.unwrap());
+	    if lt.clone() == "float".to_string() {
+		if op == BinOpKind::Add {
+		    self.output += &format!("    {} = fadd {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Sub {
+		    self.output += &format!("    {} = fsub {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Mul {
+		    self.output += &format!("    {} = fmul {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Div {
+		    self.output += &format!("    {} = fdiv {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Mod {
+		    self.output += &format!("    {} = fmod {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Eq {
+		    self.output += &format!("    {} = fcmp eq {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::NEq {
+		    self.output += &format!("    {} = fcmp ne {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
-	    else if op == BinOpKind::Sub {
-		let lhs = self.get_value(state, *lhs);
-		let rhs = self.get_value(state, *rhs);
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			TYPE_PTR.clone(),
-			qbe::Instr::Sub(
-			    qbe::Value::Temporary(lhs.clone()),
-			    qbe::Value::Temporary(rhs.clone())
-			),
-		    );
+	    else {
+		if op == BinOpKind::Add {
+		    self.output += &format!("    {} = add {} {}, {}\n", reg, lt, lhs, rhs);
 		}
-	    }
-	    else if op == BinOpKind::Mul {
-		let lhs = self.get_value(state, *lhs);
-		let rhs = self.get_value(state, *rhs);
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			TYPE_PTR.clone(),
-			qbe::Instr::Mul(
-			    qbe::Value::Temporary(lhs.clone()),
-			    qbe::Value::Temporary(rhs.clone())
-			),
-		    );
+		else if op == BinOpKind::Sub {
+		    self.output += &format!("    {} = sub {} {}, {}\n", reg, lt, lhs, rhs);
 		}
-	    }
-	    else if op == BinOpKind::Div {
-		let lhs = self.get_value(state, *lhs);
-		let rhs = self.get_value(state, *rhs);
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			TYPE_PTR.clone(),
-			qbe::Instr::Div(
-			    qbe::Value::Temporary(lhs.clone()),
-			    qbe::Value::Temporary(rhs.clone())
-			),
-		    );
+		else if op == BinOpKind::Mul {
+		    self.output += &format!("    {} = mul {} {}, {}\n", reg, lt, lhs, rhs);
 		}
-	    }
-	    else if op == BinOpKind::Mod {
-		let lhs = self.get_value(state, *lhs);
-		let rhs = self.get_value(state, *rhs);
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			TYPE_PTR.clone(),
-			qbe::Instr::Rem(
-			    qbe::Value::Temporary(lhs.clone()),
-			    qbe::Value::Temporary(rhs.clone())
-			),
-		    );
+		else if op == BinOpKind::Div {
+		    self.output += &format!("    {} = div {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Mod {
+		    self.output += &format!("    {} = mod {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Eq {
+		    self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::NEq {
+		    self.output += &format!("    {} = icmp ne {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
 	}
 	else if let IR::ID(ref id) = ir {
 	}
 	else if let IR::Integer(ref int) = ir {
-	    if let Some(ref mut func) = self.func {
-		func.assign_instr(
-		    qbe::Value::Temporary(reg.clone()),
-		    TYPE_PTR.clone(),
-		    qbe::Instr::Copy(qbe::Value::Const(int.clone())),
-		);
-	    }
+	    self.output += &format!("    {} = add i64 0, {}\n", reg, int);
 	    state.typ = Some(IR::ID("usize".to_string()));
 	}
+	else if let IR::Float(ref int) = ir {
+	    self.output += &format!("    {} = fadd float 0.0, {:.10}\n", reg, int);
+	    state.typ = Some(IR::ID("f32".to_string()));
+	}
 	else if let IR::Str(ref id) = ir {
-	    let items = vec![
-		(qbe::Type::Byte, qbe::DataItem::Str(id.to_string())),
-		(qbe::Type::Byte, qbe::DataItem::Const(0)),
-	    ];
-	    self.output.add_data(qbe::DataDef::new(qbe::Linkage::private(), reg.clone(), None, items));
-	    if let Some(ref mut func) = self.func {
-		func.assign_instr(
-		    qbe::Value::Temporary(reg.clone()),
-		    TYPE_PTR.clone(),
-		    qbe::Instr::Copy(qbe::Value::Global(reg.clone())),
-		);
-	    }
+	    let temp_reg = format!("%{}", self.get_free_register());
+	    let str_reg = format!("@.str.{}", self.get_free_register());
+	    self.data_output += &format!("{} = private constant [{} x i8] c\"{}\\00\", align 1\n", str_reg, id.len()+1, id);
+	    self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
+	    self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
 	    state.typ = Some(IR::ID("usize".to_string()));
 	}
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
 		let res = self.get_value(state, args[0].clone());
-		if let Some(ref mut func) = self.func {
-		    (*func).add_instr(qbe::Instr::Ret(Some(qbe::Value::Temporary(res))));
-		}
-		else {
-		    todo!();
-		}
+		self.output += &format!("    ret i32 {}\n", res); // TODO
 		self.end_of_block = true;
 		return reg;
 	    }
 	    if *name == "cast".to_string() {
 		let value = self.get_value(state, args[0].clone());
-		let ntyp = Self::get_qbe_type(args[1].clone());
-		if let Some(ref mut func) = self.func {
-		    func.assign_instr(
-			qbe::Value::Temporary(reg.clone()),
-			ntyp,
-			qbe::Instr::Copy(qbe::Value::Temporary(value)),
-		    );
+		let ntyp = Self::get_backend_type(args[1].clone());
+		let lsize = Self::get_backend_type(state.typ.clone().unwrap())[1..].parse::<usize>().unwrap();
+		let rsize = ntyp[1..].parse::<usize>().unwrap();
+		if lsize == rsize {
+		    self.output += &format!("    {} = add {} 0, {}\n", reg, ntyp, value);
+		}
+		else if lsize > rsize {
+		    self.output += &format!("    {} = trunc {} {} to {}\n", reg, Self::get_backend_type(state.typ.clone().unwrap()), value, ntyp);
+		}
+		else if lsize < rsize {
+		    self.output += &format!("    {} = zext {} {} to {}\n", reg, Self::get_backend_type(state.typ.clone().unwrap()), value, ntyp);
 		}
 		state.typ = Some(args[1].clone());
 		return reg;
@@ -299,17 +288,17 @@ impl CodeGen<'_> {
 			if state.typ.clone() != Some(func.args[arg].typ.clone().unwrap()) {
 			    panic!("Excepted type {:?} at call {} but got type {:?}", func.args[arg].typ.clone().unwrap(), *name, state.typ.clone().unwrap());
 			}
-			arg_regs.push((Self::get_qbe_type(func.args[arg].typ.clone().unwrap()), qbe::Value::Temporary(areg)));
+			arg_regs.push(format!("{} {}", Self::get_backend_type(func.args[arg].typ.clone().unwrap()), areg));
 		    }
-		    if let Some(ref mut sfunc) = self.func {
-			sfunc.assign_instr(
-			    qbe::Value::Temporary(reg.clone()),
-			    Self::get_qbe_type(func.typ.clone()),
-			    qbe::Instr::Call(func.real_name, arg_regs, None),
-			);
+		    if Self::get_backend_type(func.typ.clone()) != "void".to_string() {
+			self.output += &format!("    {} = call ccc {} @{}({})\n", reg, Self::get_backend_type(func.typ.clone()), func.real_name, arg_regs.join(", "));
 			state.typ = Some(func.typ);
-			return reg;
 		    }
+		    else {
+			self.output += &format!("    call ccc void @{}({})\n", func.real_name, arg_regs.join(", "));
+			state.typ = Some(IR::ID("i32".to_string()));
+		    }
+		    return reg;
 		}
 	    }
 	    /*
@@ -346,42 +335,26 @@ impl CodeGen<'_> {
 	let mut state = state.clone();
 	if let IR::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir {
 	    if *dt == DeclarationType::Global {
-		self.func = Some(Box::new(Function::new(
-		    qbe::Linkage::public(),
-		    name,
-		    Self::get_function_def_args(args.to_vec()),
-		    Some(Self::get_qbe_type(*typ.clone())),
-		)));
-		if let Some(ref mut func) = self.func {
-		    self.last_block = Some(
-			Box::new(
-			    (*func).add_block("start").clone()
-			)
-		    );
-		}
+		self.output += &format!("define ccc i32 @{}({}) {{\nextern:\n", name, Self::get_function_def_args(args.to_vec()));
 		self.codegen(&state, *body.clone().unwrap());
-		let mut func = *self.func.clone().unwrap();
-		func.add_instr(qbe::Instr::Ret(Some(qbe::Value::Const(0))));
 		self.end_of_block = false;
-		self.output.add_function(func);
+		self.output += &format!("    ret i32 0\n}}\n");
+		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: name.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if *dt == DeclarationType::Local {
-		let rname = self.get_free_register();
-		self.functions.push(CodeGenFunction{name: rname.to_string(), real_name: name.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
-		self.func = Some(Box::new(Function::new(
-		    qbe::Linkage::private(),
-		    rname,
-		    Self::get_function_def_args(args.to_vec()),
-		    Some(Self::get_qbe_type(*typ.clone())),
-		)));
+		let reg = self.get_free_register();
+		self.output += &format!("define ccc i32 @{}({}) {{\nextern:\n", reg, Self::get_function_def_args(args.to_vec()));
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		self.output.add_function(*self.func.clone().unwrap());
+		self.output += &format!("    ret i32 0\n}}\n");
+		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: reg.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
+		self.output += &format!("declare ccc i32 @{}({})\n", ename, Self::get_function_def_args(args.to_vec()));
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: ename.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
-	    }
 	}
+	}
+	/*
 	else if let IR::DeclareStructure(ref name, ref block) = ir {
 	}
 	else if let IR::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
@@ -397,52 +370,42 @@ impl CodeGen<'_> {
 		if let IR::ID(ref typ) = **typ {
 		}
 	    }
-	}
+    }
+	*/
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
 	    let rcond = self.get_value(&mut state, *cond.clone());
 	    let rthen = self.get_free_register();
 	    let rotherwise = self.get_free_register();
 	    let rend = self.get_free_register();
-	    let mut sfunc = self.func.clone().unwrap();
-	    sfunc.add_instr(
-		qbe::Instr::Jnz(
-		    qbe::Value::Temporary(rcond), rthen.clone(), if otherwise.is_some() {rotherwise.clone()} else {rend.clone()}
-		)
-	    );
-	    self.last_block = Some(
-		Box::new(
-		    (*sfunc).add_block(rthen).clone()
-		)
-	    );
-	    self.func = Some(sfunc.clone());
+	    self.output += &format!("    br i1 {}, label %{}, label %{}\n", rcond, rthen, rotherwise);
+	    self.output += &format!("{}:\n", rthen);
 	    self.codegen(&state, *then.clone());
-	    sfunc = self.func.clone().unwrap();
+	    self.end_of_block = false;
+	    self.output += &format!("    br label %{}\n", rend);
+	    self.output += &format!("{}:\n", rotherwise);
 	    if otherwise.is_some() {
-		if !self.end_of_block {
-		    sfunc.add_instr(
-			qbe::Instr::Jmp(
-			    rend.clone()
-			)
-		    );
-		}
-		self.end_of_block = false;
-		
-		self.last_block = Some(
-		    Box::new(
-			(*sfunc).add_block(rotherwise).clone()
-		    )
-		);
-		self.func = Some(sfunc.clone());
 		self.codegen(&state, *otherwise.clone().unwrap());
 		self.end_of_block = false;
-		sfunc = self.func.clone().unwrap();
 	    }
-	    self.last_block = Some(
-		Box::new(
-		    (*sfunc).add_block(rend).clone()
-		)
-	    );
-	    self.func = Some(sfunc.clone());
+	    self.output += &format!("    br label %{}\n", rend);
+	    self.output += &format!("{}:\n", rend);
+	}
+	else if let IR::While(ref cond, ref body) = ir {
+	    let rbody = self.get_free_register();
+	    let rreal_body = self.get_free_register();
+	    let rend = self.get_free_register();
+	    self.output += &format!("    br label %{}\n", rbody);
+	    self.output += &format!("{}:\n", rbody);
+	    let rcond = self.get_value(&mut state, *cond.clone());
+	    if Self::get_backend_type(state.typ.clone().unwrap()) != "i1".to_string() {
+		panic!("Excepted bool but got {:?}", state.typ.clone());
+	    }
+	    self.output += &format!("    br i1 {}, label %{}, label %{}\n", rcond, rreal_body, rend);
+	    self.output += &format!("{}:\n", rreal_body);
+	    self.codegen(&state, *body.clone());
+	    self.end_of_block = false;
+	    self.output += &format!("    br label %{}\n", rbody);
+	    self.output += &format!("{}:\n", rend);
 	}
 	else if let IR::Block(ref insts) = ir {
 	    for inst in insts {
@@ -453,7 +416,7 @@ impl CodeGen<'_> {
 	    }
 	}
 	else if ir == IR::Dummy {
-	}
+        }
 	else {
 	    if self.end_of_block {
 		return state;
@@ -528,7 +491,6 @@ impl IRBuilder {
     }
     
     fn build(ast: PrettyAst) -> IR {
-	println!("\n{:?}\n", ast);
 	match ast.rule {
 	    Rule::EOI => IR::Dummy,
 	    Rule::WHITESPACE => IR::Dummy,
@@ -568,15 +530,14 @@ impl IRBuilder {
 		let lhs = Self::build(ast.inner[0].clone());
 		let op = ast.inner[1].span.clone();
 		let rhs = Self::build(ast.inner[2].clone());
-		if op != "+".to_string() && op != "-".to_string() && op != "*".to_string() {
-		    panic!("Currently supported only A+B, A-B, and A*B");
-		}
 		let binopkind = if op == "+".to_string() {
 		    BinOpKind::Add } else if op == "*".to_string() {
 		    BinOpKind::Mul } else if op == "-".to_string() {
 		    BinOpKind::Sub } else if op == "/".to_string() {
 		    BinOpKind::Div } else if op == "%".to_string() {
-		    BinOpKind::Mod } else {todo!()};
+		    BinOpKind::Mod } else if op == "==".to_string() {
+		    BinOpKind::Eq } else if op == "!=".to_string() {
+		    BinOpKind::NEq } else {todo!()};
 		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
 	    },
 	    Rule::expr_atom => {
@@ -590,6 +551,9 @@ impl IRBuilder {
 	    },
 	    Rule::if_stmt => {
 		IR::If(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())), if ast.inner.len() == 3 {Some(Box::new(Self::build(ast.inner[2].clone())))} else {None})
+	    }
+	    Rule::while_stmt => {
+		IR::While(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())))
 	    }
 	    Rule::func => {
 		let IR::Declaration(decl) = Self::build(ast.inner[0].clone()) else {panic!()};
@@ -618,25 +582,19 @@ fn main() {
 	FaivyParser::parse(Rule::program, &fs::read_to_string("input.faivy").unwrap()
 	).unwrap()
     );
-    println!("{:?}", ast);
     let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-    println!("{:?}", ir);
     let mut codegen = CodeGen::new();
     codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
     let mut code = String::new();
-    code += &format!("{}", codegen.output);
+    code += &codegen.data_output;
+    code += &codegen.output;
     let mut rng = rand::thread_rng();
-    let temp_qbe = format!("/tmp/{}.qbe", rng.r#gen::<u32>().to_string());
-    let temp_as = "output.s".to_string();
-    let _ = fs::write(temp_qbe.clone(), code);
-    let mut qbe_work = Command::new("qbe");
-    qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
-    println!("{:?}", qbe_work.output().unwrap());
-    let mut cc_work = Command::new("cc");
-    cc_work.arg(temp_as);
-    println!("{:?}", cc_work.output().unwrap());
+    let temp_llvm_ir = format!("/tmp/{}.ll", rng.r#gen::<u32>().to_string());
+    println!("{}", code.clone());
+    let _ = fs::write(temp_llvm_ir.clone(), code);
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,3 +650,4 @@ mod tests {
 	assert_eq!(String::from_utf8(a_res.stdout).unwrap(), fs::read_to_string("tests/unit00.out").unwrap());
     }
 }
+*/

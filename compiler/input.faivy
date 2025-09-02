@@ -1,14 +1,28 @@
-extern write :: libc_write :: usize (fd: i32, ptr: usize, size: usize);
-extern strlen :: libc_strlen :: usize (str: usize);
+extern InitWindow :: raylib_init_window :: void (width: i32, height: i32, title: usize);
+extern BeginDrawing :: raylib_begin :: void ();
+extern GetMouseX :: raylib_mousex :: i32 ();
+extern GetMouseY :: raylib_mousey :: i32 ();
+extern DrawRectangle :: raylib_draw_rect :: void (x: i32, y: i32, width: i32, height: i32, color: u32);
+extern DrawCircle :: raylib_draw_circle :: void (x: i32, y: i32, radius: f32, color: u32);
+extern GetMouseWheelMove :: raylib_mouse_scroll :: f32 ();
+extern EndDrawing :: raylib_end :: void ();
+extern WindowShouldClose :: raylib_window_closed :: bool ();
+extern exit :: libc_exit :: void (code: i32);
+
+local :: fail :: i32 () {
+    libc_exit(cast(69+(21*2), i32));
+}
+
+local :: success :: i32 () {
+    libc_exit(cast(0, i32));
+}
 
 global :: main :: i32 () {
-    1 :: if {
-        libc_write(cast(1, i32), "Hello, world!", libc_strlen("Hello, world!"));
+    raylib_init_window(cast(800, i32), cast(600, i32), "Hello!");
+    raylib_window_closed() == cast(0, bool) :: while {
+        raylib_begin();
+	raylib_draw_circle(raylib_mousex(), raylib_mousey(), raylib_mouse_scroll()*5.0, cast(4278190335, u32));
+        raylib_end();
     }
-    0 :: if {
-        return(42);
-    }
-    else {
-        return(69+42);
-    }
+    success();
 }
