@@ -1,0 +1,7 @@
+extern write :: libc_write :: usize (fd: i32, ptr: usize, size: usize);
+extern strlen :: libc_strlen :: usize (str: usize);
+
+global :: main :: i32 () {
+    libc_write(cast(1, i32), "Hello, ", libc_strlen("Hello, "));
+    libc_write(cast(1, i32), "Faivy!", libc_strlen("Faivy!"));
+}

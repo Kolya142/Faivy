@@ -1,0 +1,10 @@
+extern InitWindow :: raylib_init_window :: void (width: i32, height: i32, title: usize);
+extern BeginDrawing :: raylib_begin :: void ();
+extern ClearBackground :: raylib_clear :: void (color: u32);
+extern GetMouseX :: raylib_mousex :: i32 ();
+extern GetMouseY :: raylib_mousey :: i32 ();
+extern DrawRectangle :: raylib_draw_rect :: void (x: i32, y: i32, width: i32, height: i32, color: u32);
+extern DrawCircle :: raylib_draw_circle :: void (x: i32, y: i32, radius: f32, color: u32);
+extern GetMouseWheelMove :: raylib_mouse_scroll :: f32 ();
+extern EndDrawing :: raylib_end :: void ();
+extern WindowShouldClose :: raylib_window_closed :: bool ();

@@ -1,0 +1,15 @@
+#import "Basics.faivy";
+#import "Raylib.faivy";
+
+global :: main :: i32 () {
+    raylib_init_window(cast(800, i32), cast(600, i32), "Hello!");
+    local :: size :: f32 = 5.0;
+    raylib_window_closed() == cast(0, bool) :: while {
+        size := size+(raylib_mouse_scroll()*0.1*size);
+        raylib_begin();
+	raylib_clear(cast(0, u32));
+	raylib_draw_circle(raylib_mousex(), raylib_mousey(), size, cast(4278190335, u32));
+        raylib_end();
+    }
+    return(cast(0, i32));
+}

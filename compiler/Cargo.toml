@@ -1,0 +1,9 @@
+[package]
+name = "compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pest = "2.8.1"
+pest_derive = "2.8.1"
+rand = "0.9.2"

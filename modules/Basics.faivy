@@ -1,0 +1,8 @@
+extern exit :: exit :: void (code: i32);
+extern write :: libc_write :: isize (fd: i32, buf: usize, count: usize);
+extern read :: libc_read :: isize (fd: i32, buf: usize, count: usize);
+extern strlen :: get_length_of_string :: usize (buf: usize);
+
+local :: print_str :: void (data: usize) {
+    libc_write(cast(1, i32), data, get_length_of_string(data));
+}
