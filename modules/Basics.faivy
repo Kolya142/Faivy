@@ -1,35 +1,87 @@
-extern exit :: exit :: void (code: i32);
-extern write :: libc_write :: isize (fd: i32, buf: usize, count: usize);
-extern read :: libc_read :: isize (fd: i32, buf: usize, count: usize);
-extern strlen :: get_length_of_string :: usize (buf: usize);
-extern strcmp :: libc_compare_strings :: i32 (a: usize, b: usize);
-extern malloc :: libc_alloc :: usize (size: usize);
-extern free :: free :: void (buf: usize);
-extern time :: libc_time :: usize (timer: usize);
-forward :: print_str :: void (data: usize);
+extern exit :: exit :: void -> (code: i32);
+extern write :: libc_write :: isize -> (fd: i32, buf: usize, count: usize);
+extern read :: libc_read :: isize -> (fd: i32, buf: usize, count: usize);
+extern strlen :: get_length_of_string :: usize -> (buf: usize);
+extern memmove/*memcpy*/ :: copy_bytes :: usize -> (dst: usize, src: usize, count: usize);
+extern memset :: fill_bytes :: usize -> (dst: usize, value: u8, count: usize);
+extern strcmp :: libc_compare_strings :: i32 -> (a: usize, b: usize);
+extern malloc :: libc_alloc :: usize -> (size: usize);
+extern free :: free :: void -> (buf: usize);
+extern time :: libc_time :: usize -> (timer: usize);
 
-global :: get_unix_seconds :: usize () {
+extern putchar :: print_char :: void -> (value: u8);
+
+extern logf :: m_log10 :: f32 -> (value: f32);
+extern sinf :: m_sin :: f32 -> (rad: f32);
+extern cosf :: m_cos :: f32 -> (rad: f32);
+extern tanf :: m_tan :: f32 -> (rad: f32);
+extern atanf :: m_atan :: f32 -> (value: f32);
+
+extern clock :: get_execution_ticks :: usize -> ();
+
+forward :: print_str :: void -> (data: usize);
+
+global :: m_log :: f32 -> (value: f32, base: f32) {
+    return(m_log10(value)/m_log10(base));
+}
+
+global :: m_log2 :: f32 -> (value: f32) {
+    return(m_log10(value)/0.30103);
+}
+
+global :: i32_to_f32 :: f32 -> (i: i32) {
+    #llvm "%result = sitofp i32 %i to float";
+    #llvm "ret float %result";
+}
+
+global :: f32_to_i32 :: i32 -> (i: f32) {
+    #llvm "%result = fptosi float %i to i32";
+    #llvm "ret i32 %result";
+}
+
+global :: get_unix_seconds :: usize -> () {
     return(libc_time(0));
 }
 
-global :: panic :: void (msg: usize) {
-    print_str("Panic at TODO(TODO:TODO): ");
+global :: panic :: void -> (msg: usize) {
+    print_str("Panic at TODO.faivy(TODO:TODO): ");
     print_str(msg);
     exit(cast(1, i32));
 }
 
-global :: alloc :: usize (size: usize) {
+global :: alloc :: usize -> (size: usize) {
     local :: result :: usize = libc_alloc(size);
     result == 0 :: if {
-        panic("OOM");
+        panic("alloc failed: OOM");
     }
     return(result);
 }
 
-global :: is_strings_equal/*strcmp*/ :: bool (a: usize, b: usize) {
+global :: is_strings_equal/*strcmp*/ :: bool -> (a: usize, b: usize) {
     return(libc_compare_strings(a, b) == cast(0, i32));
 }
 
-global :: print_str :: void (data: usize) {
+global :: print_str :: void -> (data: usize) {
     libc_write(cast(1, i32), data, get_length_of_string(data));
+}
+
+global :: print_usize :: void -> (a: usize) {
+    a == 0 :: if {
+	print_str("0");
+	return_void();
+    }
+    
+    local :: buf :: Ptr(u8) = cast(alloc(11), Ptr(u8));
+    local :: p :: usize = 10;
+    poke(buf+cast(p, Ptr(u8)), cast(0, u8));
+    
+    a != 0 :: if {
+	p := p - 1;
+	poke(buf+cast(p, Ptr(u8)), cast(48+(a%10), u8));
+	a := a / 10;
+    }
+    
+    print_str(cast(buf+cast(p, Ptr(u8)), usize));
+    
+    free(cast(buf, usize));
 }

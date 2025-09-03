@@ -3,7 +3,7 @@ COMMENT			= _{ "//" ~ (!"\n" ~ ANY)* ~ ("\n" | EOI)
                 | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
 program			=  { SOI ~ stmt* ~ EOI }
-stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | struct_decl | import | block | ( call ~ ";" ) | (set ~ ";") }
+stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | struct_decl | import | asm | llvm | block | ( call ~ ";" ) | (set ~ ";") }
 
 decl_extern_type	= { "extern" ~ identifier }
 decl_global_type	= { "global" }
@@ -19,12 +19,14 @@ for_stmt		= { "for" ~ "::" ~ expr ~ "," ~ expr ~ "," ~ expr ~ block }
 while_stmt		= { expr ~ "::" ~ "while" ~ block }
 block			= { "{" ~ stmt* ~ "}" }
 
-variable		= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ ( "=" ~ expr )? ~ ";" }
+variable		= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ expr ~ ( "=" ~ expr )? ~ ";" }
 set			= { expr ~ ":=" ~ expr }
-func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ identifier ~ "(" ~ args ~ ")" ~ ( block | ";" ) }
+func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ expr ~ "->" ~ "(" ~ args ~ ")" ~ ( block | ";" ) }
 field			= { identifier ~ ":" ~ expr }
 struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
 import			= { "#import" ~ string ~ ";" }
+asm			= { "#asm" ~ string ~ ";" }
+llvm			= { "#llvm" ~ string ~ ";" }
 
 binop			= { ( call | primary ) ~ binop_op ~ expr }
 unaryop			= { unaryop_op ~ expr }
@@ -34,7 +36,7 @@ expr_atom		= { binop | unaryop | call | primary }
 expr			= { expr_atom }
 primary			= { number | char_lit | string | identifier | "(" ~ expr ~ ")" }
 
-binop_op		= @{ "==" | "&&" | "||" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
+binop_op		= @{ "==" | "!=" | ">>" | "<<" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
 unaryop_op		= @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
 identifier		= @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
 number			= @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? | "." ~ ASCII_DIGIT+ }

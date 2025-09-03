@@ -25,13 +25,12 @@ enum BinOpKind {
     Div,
     Mul,
     Mod,
-    /*
+    LShft,
+    RShft,
     And,
     Or,
     Xor,
-    LAnd,
-    LOr,
-    Dot,*/
+    // Dot,
     Eq,
     NEq,/*
     Less,
@@ -66,6 +65,8 @@ enum IR {
     // UnaryOp(UnaryOpKind, Box<IR>),
     Block(Vec<IR>),
     Import(String),
+    Asm(String),
+    LLVM(String),
     // Evalute(Box<IR>),
     If(Box<IR>, Box<IR>, Option<Box<IR>>),
     While(Box<IR>, Box<IR>),
@@ -175,7 +176,7 @@ impl CodeGen {
 	    return "i8";
 	}
 	else if symname == IR::ID("u8".to_string()) {
-	    return "u8";
+	    return "i8";
 	}
 	else if symname == IR::ID("void".to_string()) {
 	    return "void";
@@ -190,14 +191,14 @@ impl CodeGen {
     }
     fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
 	let reg = format!("%{}", self.get_free_register());
-	if let IR::BinOp(op, lhs, rhs) = ir {
+	if let IR::BinOp(op, elhs, erhs) = ir {
 	    // let res: Vec<u8> = vec![];
-	    let lhs = self.get_value(state, *lhs);
+	    let lhs = self.get_value(state, *elhs.clone());
 	    let lt = state.typ.clone();
-	    let rhs = self.get_value(state, *rhs);
+	    let rhs = self.get_value(state, *erhs.clone());
 	    let rt = state.typ.clone();
 	    if lt != rt {
-		panic!("Failed to sum {:?} and {:?}", lt, rt);
+		panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?}", elhs, lt, erhs, rt);
 	    }
 	    let lt = Self::get_backend_type(lt.unwrap());
 	    if lt == "float".to_string() {
@@ -236,10 +237,25 @@ impl CodeGen {
 		    self.output += &format!("    {} = mul {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Div {
-		    self.output += &format!("    {} = div {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = udiv {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Mod {
-		    self.output += &format!("    {} = rem {} {}, {}\n", reg, lt, lhs, rhs);
+		    self.output += &format!("    {} = urem {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::LShft {
+		    self.output += &format!("    {} = shl {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::RShft {
+		    self.output += &format!("    {} = lshr {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::And {
+		    self.output += &format!("    {} = and {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Or {
+		    self.output += &format!("    {} = or {} {}, {}\n", reg, lt, lhs, rhs);
+		}
+		else if op == BinOpKind::Xor {
+		    self.output += &format!("    {} = xor {} {}, {}\n", reg, lt, lhs, rhs);
 		}
 		else if op == BinOpKind::Eq {
 		    self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
@@ -280,8 +296,12 @@ impl CodeGen {
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
 		let res = self.get_value(state, args[0].clone());
-		println!("{:?} - return {:?}", state.expected_typ.clone(), args);
 		self.output += &format!("    ret {} {}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), res);
+		self.end_of_block = true;
+		return reg;
+	    }
+	    if *name == "return_void".to_string() {
+		self.output += "    ret void\n";
 		self.end_of_block = true;
 		return reg;
 	    }
@@ -300,6 +320,54 @@ impl CodeGen {
 		    self.output += &format!("    {} = zext {} {} to {}\n", reg, Self::get_backend_type(state.typ.clone().unwrap()), value, ntyp);
 		}
 		state.typ = Some(args[1].clone());
+		return reg;
+	    }
+	    if *name == "peek".to_string() {
+		let int_addr = self.get_value(state, args[0].clone());
+		let addr = format!("%{}", self.get_free_register());
+		
+		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, Self::get_backend_type(state.typ.clone().unwrap()), int_addr);
+		
+		if let Some(IR::Call(wrapper, args)) = &state.typ {
+		    if *wrapper != "Ptr".to_string() {
+			panic!("Tried to peek from not a pointer {:?}", args[0].clone());
+		    }
+		    let elem_type = Self::get_backend_type(args[0].clone());
+		    
+		    self.output += &format!("    {} = load {}, ptr {}\n", reg, elem_type, addr);
+
+		    state.typ = Some(args[0].clone());
+		}
+		else {
+		    panic!("Tried to peek from not a pointer {:?}", args[0].clone());
+		}
+		return reg;
+	    }
+	    if *name == "poke".to_string() {
+		let int_addr = self.get_value(state, args[0].clone());
+		let addr_typ = state.typ.clone();
+		let value = self.get_value(state, args[1].clone());
+		let value_typ = state.typ.clone();
+		let addr = format!("%{}", self.get_free_register());
+		let oargs = args.clone();
+		
+		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, Self::get_backend_type(addr_typ.clone().unwrap()), int_addr);
+		
+		if let Some(IR::Call(wrapper, args)) = addr_typ.clone() {
+		    if *wrapper != "Ptr".to_string() {
+			panic!("Tried to poke to not a pointer {:?}({:?})", oargs[0].clone(), addr_typ);
+		    }
+		    if args[0].clone() != value_typ.clone().unwrap() {
+			panic!("Tried to poke a value {:?} that doesn't compatiable with the pointer {:?}", oargs[1].clone(), oargs[0].clone());
+		    }
+		    let elem_type = Self::get_backend_type(value_typ.unwrap());
+		    
+		    self.output += &format!("    store {} {}, ptr {}\n", elem_type, value, addr);
+		    state.typ = Some(IR::ID("i32".to_string()));
+		}
+		else {
+		    panic!("Tried to poke to not a pointer {:?}({:?})", oargs[0].clone(), addr_typ);
+		}
 		return reg;
 	    }
 	    for func in self.functions.clone() {
@@ -380,7 +448,10 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		if Self::get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
+		    self.output += "    ret float 0.0\n}\n";
+		}
+		else if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
 		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
 		}
 		else {
@@ -409,7 +480,10 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		if Self::get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
+		    self.output += "    ret float 0.0\n}\n";
+		}
+		else if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
 		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
 		}
 		else {
@@ -459,6 +533,12 @@ impl CodeGen {
 	    );
 	    let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
 	    self.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
+	}
+	else if let IR::Asm(_) = ir {
+	    todo!()
+	}
+	else if let IR::LLVM(ref code) = ir {
+	    self.output += &format!("{}\n", code);
 	}
 	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
 	    let variables = self.local_variables.clone();
@@ -655,9 +735,14 @@ impl IRBuilder {
 		    BinOpKind::Mul } else if op == "-".to_string() {
 		    BinOpKind::Sub } else if op == "/".to_string() {
 		    BinOpKind::Div } else if op == "%".to_string() {
-		    BinOpKind::Mod } else if op == "==".to_string() {
+		    BinOpKind::Mod } else if op == "<<".to_string() {
+		    BinOpKind::LShft } else if op == ">>".to_string() {
+		    BinOpKind::RShft } else if op == "==".to_string() {
 		    BinOpKind::Eq } else if op == "!=".to_string() {
-		    BinOpKind::NEq } else {todo!()};
+		    BinOpKind::NEq } else if op == "&".to_string() {
+		    BinOpKind::And } else if op == "|".to_string() {
+		    BinOpKind::Or } else if op == "^".to_string() {
+		    BinOpKind::Xor } else {todo!()};
 		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
 	    },
 	    Rule::expr_atom => {
@@ -668,6 +753,12 @@ impl IRBuilder {
 	    },
 	    Rule::import => {
 		IR::Import(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
+	    },
+	    Rule::asm => {
+		IR::Asm(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
+	    },
+	    Rule::llvm => {
+		IR::LLVM(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
 	    },
 	    Rule::call => {
 		IR::Call(ast.inner[0].span.clone(), Self::build_expr_args(ast.inner[1].clone()).unwrap())
@@ -725,7 +816,7 @@ fn main() {
     let temp_llvm_ir = format!("/tmp/{}.ll", rng.random::<u32>().to_string());
     let _ = fs::write(temp_llvm_ir.clone(), code);
     let mut cc = Command::new("clang");
-    cc.arg(temp_llvm_ir).arg("-o").arg(format!("{}.out", argv[1].clone()));
+    cc.arg("-lm").arg(temp_llvm_ir).arg("-o").arg(format!("{}.out", argv[1].clone()));
     for i in 2..argv.len() {
 	cc.arg(argv[i].clone());
     }
