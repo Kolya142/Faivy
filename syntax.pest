@@ -36,7 +36,7 @@ expr_atom		= { binop | unaryop | call | primary }
 expr			= { expr_atom }
 primary			= { number | char_lit | string | identifier | "(" ~ expr ~ ")" }
 
-binop_op		= @{ "==" | "!=" | ">>" | "<<" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
+binop_op		= @{ ">=" | "<=" | ">" | "<" | "==" | "!=" | ">>" | "<<" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
 unaryop_op		= @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
 identifier		= @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
 number			= @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? | "." ~ ASCII_DIGIT+ }

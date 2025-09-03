@@ -32,11 +32,11 @@ enum BinOpKind {
     Xor,
     // Dot,
     Eq,
-    NEq,/*
+    NEq,
     Less,
     Bigger,
     LessOrEq,
-    BiggerOrEq,*/
+    BiggerOrEq,
 }
 
 /*#[derive(Debug,Clone,PartialEq)]
@@ -225,6 +225,22 @@ impl CodeGen {
 		    self.output += &format!("    {} = fcmp one {} {}, {}\n", reg, lt, lhs, rhs);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
+		else if op == BinOpKind::Less {
+		    self.output += &format!("    {} = fcmp olt {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::Bigger {
+		    self.output += &format!("    {} = fcmp ogt {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::LessOrEq {
+		    self.output += &format!("    {} = fcmp ole {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::BiggerOrEq {
+		    self.output += &format!("    {} = fcmp oge {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
 	    }
 	    else {
 		if op == BinOpKind::Add {
@@ -263,6 +279,22 @@ impl CodeGen {
 		}
 		else if op == BinOpKind::NEq {
 		    self.output += &format!("    {} = icmp ne {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::Less {
+		    self.output += &format!("    {} = icmp ult {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::Bigger {
+		    self.output += &format!("    {} = icmp ugt {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::LessOrEq {
+		    self.output += &format!("    {} = icmp ule {} {}, {}\n", reg, lt, lhs, rhs);
+		    state.typ = Some(IR::ID("bool".to_string()));
+		}
+		else if op == BinOpKind::BiggerOrEq {
+		    self.output += &format!("    {} = icmp uge {} {}, {}\n", reg, lt, lhs, rhs);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
@@ -738,7 +770,11 @@ impl IRBuilder {
 		    BinOpKind::Mod } else if op == "<<".to_string() {
 		    BinOpKind::LShft } else if op == ">>".to_string() {
 		    BinOpKind::RShft } else if op == "==".to_string() {
-		    BinOpKind::Eq } else if op == "!=".to_string() {
+		    BinOpKind::Eq } else if op == ">".to_string() {
+		    BinOpKind::Bigger } else if op == "<".to_string() {
+		    BinOpKind::Less } else if op == "<=".to_string() {
+		    BinOpKind::BiggerOrEq } else if op == ">=".to_string() {
+		    BinOpKind::LessOrEq } else if op == "!=".to_string() {
 		    BinOpKind::NEq } else if op == "&".to_string() {
 		    BinOpKind::And } else if op == "|".to_string() {
 		    BinOpKind::Or } else if op == "^".to_string() {

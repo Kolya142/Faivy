@@ -1,6 +1,7 @@
 extern InitWindow :: raylib_init_window :: void -> (width: i32, height: i32, title: usize);
 extern BeginDrawing :: raylib_begin :: void -> ();
 extern ClearBackground :: raylib_clear :: void -> (color: u32);
+extern SetTargetFPS :: raylib_set_fps :: void -> (fps: i32);
 extern GetMouseX :: raylib_mousex :: i32 -> ();
 extern GetMouseY :: raylib_mousey :: i32 -> ();
 extern DrawLine :: raylib_draw_line :: void -> (x0: i32, y0: i32, x1: i32, y1: i32, color: u32);

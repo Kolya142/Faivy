@@ -16,6 +16,9 @@ extern sinf :: m_sin :: f32 -> (rad: f32);
 extern cosf :: m_cos :: f32 -> (rad: f32);
 extern tanf :: m_tan :: f32 -> (rad: f32);
 extern atanf :: m_atan :: f32 -> (value: f32);
+extern powf :: m_pow :: f32 -> (num: f32, power: f32);
+
+extern system :: os_run :: i32 -> (cmd: usize);
 
 extern clock :: get_execution_ticks :: usize -> ();
 
