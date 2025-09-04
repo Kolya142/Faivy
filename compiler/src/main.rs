@@ -4,6 +4,7 @@ use pest::Parser;
 use pest_derive::Parser;
 use pest::iterators::Pairs;
 use std::process::Command;
+use std::collections::HashMap;
 use std::env;
 
 #[derive(Parser)]
@@ -16,6 +17,7 @@ enum DeclarationType {
     Global,
     Local,
     Forward,
+    Const,
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -63,10 +65,10 @@ enum IR {
     BinOp(BinOpKind, Box<IR>, Box<IR>),
     UnaryOp(UnaryOpKind, Box<IR>),
     Block(Vec<IR>),
+    Scope(Vec<IR>),
     Import(String),
     Asm(String),
     LLVM(String),
-    // Evalute(Box<IR>),
     If(Box<IR>, Box<IR>, Option<Box<IR>>),
     While(Box<IR>, Box<IR>),
 }
@@ -81,6 +83,7 @@ struct CodeGenVariable {
 struct CodeGenFakeableVariable {
     real_name: String,
     name: String,
+    value: Option<String>,
     typ: Option<IR>,
 }
 
@@ -116,6 +119,7 @@ struct CodeGen {
     // global_variables: Vec<CodeGenFakeableVariable>,
     local_variables: Vec<CodeGenFakeableVariable>,
     structs: Vec<CodeGenStruct>,
+    strings: HashMap<String, String>,
     oid: usize,
 }
 
@@ -127,6 +131,7 @@ impl CodeGen {
 	    end_of_block: false,
 	    functions: vec![],
 	    // global_variables: vec![],
+	    strings: HashMap::new(),
 	    local_variables: vec![],
 	    structs: vec![],
 	    oid: 0,
@@ -139,6 +144,22 @@ impl CodeGen {
     }
     fn get_function_def_args(&self, args: Vec<CodeGenVariable>) -> String {
 	return args.into_iter().map(|x| format!("{} %{}", self.get_backend_type(x.typ.unwrap()), x.name)).collect::<Vec<_>>().join(", ");
+    }
+    fn get_float_from_string(value: String) -> f32 {
+	if value.starts_with("0x") {
+	    f64::from_bits(u64::from_str_radix(&value[2..], 16).unwrap()) as f32
+	}
+	else {
+	    value.parse::<f32>().unwrap()
+	}
+    }
+    fn get_int_from_string(value: String) -> u64 {
+	if value.clone().starts_with("0x") {
+	    u64::from_str_radix(&value[2..], 16).unwrap()
+	}
+	else {
+	    value.parse::<u64>().unwrap()
+	}
     }
     fn get_backend_type(&self, symname: IR) -> String {
 	if let IR::Call(ref name, _) = symname {
@@ -192,7 +213,97 @@ impl CodeGen {
 	}
 	return "i64".to_string();
     }
+    fn const_interpret(ir: IR) -> IR {
+	if let IR::Float(_) = ir {
+	    return ir;
+	}
+	if let IR::Integer(_) = ir {
+	    return ir;
+	}
+	if let IR::BinOp(ref op, ref elhs, ref erhs) = ir {
+	    let op = op.clone();
+	    let lhs = Self::const_interpret(*elhs.clone());
+	    let rhs = Self::const_interpret(*erhs.clone());
+	    if let IR::Float(ref lhs) = lhs {
+		if let IR::Float(ref rhs) = rhs {
+		    if op == BinOpKind::Add {
+			return IR::Float(lhs+rhs);
+		    }
+		    else if op == BinOpKind::Sub {
+			return IR::Float(lhs-rhs);
+		    }
+		    else if op == BinOpKind::Mul {
+			return IR::Float(lhs*rhs);
+		    }
+		    else if op == BinOpKind::Div {
+			return IR::Float(lhs/rhs);
+		    }
+		    else if op == BinOpKind::Mod {
+			return IR::Float(lhs%rhs);
+		    }
+		    else if op == BinOpKind::Eq {
+			return IR::Integer(if lhs==rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::NEq {
+			return IR::Integer(if lhs!=rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::Less {
+			return IR::Integer(if lhs<rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::Bigger {
+			return IR::Integer(if lhs>rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			return IR::Integer(if lhs<=rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			return IR::Integer(if lhs>=rhs {1} else {0});
+		    }
+		}
+	    }
+	    if let IR::Integer(ref lhs) = lhs {
+		if let IR::Integer(ref rhs) = rhs {
+		    if op == BinOpKind::Add {
+			return IR::Integer(lhs+rhs);
+		    }
+		    else if op == BinOpKind::Sub {
+			return IR::Integer(lhs-rhs);
+		    }
+		    else if op == BinOpKind::Mul {
+			return IR::Integer(lhs*rhs);
+		    }
+		    else if op == BinOpKind::Div {
+			return IR::Integer(lhs/rhs);
+		    }
+		    else if op == BinOpKind::Mod {
+			return IR::Integer(lhs%rhs);
+		    }
+		    else if op == BinOpKind::Eq {
+			return IR::Integer(if lhs==rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::NEq {
+			return IR::Integer(if lhs!=rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::Less {
+			return IR::Integer(if lhs<rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::Bigger {
+			return IR::Integer(if lhs>rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			return IR::Integer(if lhs<=rhs {1} else {0});
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			return IR::Integer(if lhs>=rhs {1} else {0});
+		    }
+		}
+	    }
+	}
+	panic!("Failed to interpret {:?} staticly", ir);
+    }
     fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
+	println!("; {:?}\n", ir);
+	self.output += &format!("; {:?}\n", ir);
 	let reg = format!("%{}", self.get_free_register());
 	if let IR::BinOp(op, elhs, erhs) = ir {
 	    
@@ -244,6 +355,90 @@ impl CodeGen {
 		    panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?}", elhs, lt, erhs, rt);
 		}
 		let lt = self.get_backend_type(lt.unwrap());
+		if lhs.chars().next().unwrap().is_digit(10) && rhs.chars().next().unwrap().is_digit(10) {
+		    if lt == "float".to_string() {
+			if op == BinOpKind::Add {
+			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)+Self::get_float_from_string(rhs)));
+			}
+			else if op == BinOpKind::Sub {
+			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)-Self::get_float_from_string(rhs)));
+			}
+			else if op == BinOpKind::Mul {
+			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)*Self::get_float_from_string(rhs)));
+			}
+			else if op == BinOpKind::Div {
+			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)/Self::get_float_from_string(rhs)));
+			}
+			else if op == BinOpKind::Mod {
+			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)%Self::get_float_from_string(rhs)));
+			}
+			else if op == BinOpKind::Eq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)==Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::NEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)!=Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::Less {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)<Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::Bigger {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)>Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::LessOrEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)<=Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::BiggerOrEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_float_from_string(lhs)>=Self::get_float_from_string(rhs) {1} else {0}).to_string();
+			}
+		    }
+		    else {
+			if op == BinOpKind::Add {
+			    return (Self::get_int_from_string(lhs)+Self::get_int_from_string(rhs)).to_string();
+			}
+			else if op == BinOpKind::Sub {
+			    return (Self::get_int_from_string(lhs)-Self::get_int_from_string(rhs)).to_string();
+			}
+			else if op == BinOpKind::Mul {
+			    return (Self::get_int_from_string(lhs)*Self::get_int_from_string(rhs)).to_string();
+			}
+			else if op == BinOpKind::Div {
+			    return (Self::get_int_from_string(lhs)/Self::get_int_from_string(rhs)).to_string();
+			}
+			else if op == BinOpKind::Mod {
+			    return (Self::get_int_from_string(lhs)%Self::get_int_from_string(rhs)).to_string();
+			}
+			else if op == BinOpKind::Eq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)==Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::NEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)!=Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::Less {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)<Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::Bigger {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)>Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::LessOrEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)<=Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+			else if op == BinOpKind::BiggerOrEq {
+			    state.typ = Some(IR::ID("bool".to_string()));
+			    return (if Self::get_int_from_string(lhs)>=Self::get_int_from_string(rhs) {1} else {0}).to_string();
+			}
+		    }
+		}
 		if lt == "float".to_string() {
 		    if op == BinOpKind::Add {
 			self.output += &format!("    {} = fadd {} {}, {}\n", reg, lt, lhs, rhs);
@@ -381,6 +576,10 @@ impl CodeGen {
 	else if let IR::ID(ref id) = ir {
 	    for var in self.local_variables.clone() {
 		if var.name == *id {
+		    if let Some(ref value) = var.value {
+			state.typ = var.typ.clone();
+			return value.clone();
+		    }
 		    self.output += &format!("    {} = load {}, ptr {}\n", reg, self.get_backend_type(var.typ.clone().unwrap()), var.real_name);
 		    state.typ = var.typ.clone();
 		    return reg;
@@ -393,16 +592,25 @@ impl CodeGen {
 	    return format!("{}", int);
 	}
 	else if let IR::Float(ref int) = ir {
-	    self.output += &format!("    {} = fadd float 0x{:016X}, 0x{:016X}\n", reg, (0.0_f32 as f64).to_bits(), ((*int) as f64).to_bits());
 	    state.typ = Some(IR::ID("f32".to_string()));
+	    return format!("0x{:016X}", (int.clone() as f64).to_bits());
 	}
 	else if let IR::Str(ref id) = ir {
-	    let temp_reg = format!("%{}", self.get_free_register());
-	    let str_reg = format!("@.str.{}", self.get_free_register());
-	    self.data_output += &format!("{} = private constant [{} x i8] c\"{}\\00\", align 1\n", str_reg, id.len()+1, id);
-	    self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
-	    self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
-	    state.typ = Some(IR::ID("usize".to_string()));
+	    if let Some(str_reg) = self.strings.clone().get(id) {
+		let temp_reg = format!("%{}", self.get_free_register());
+		self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
+		self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
+		state.typ = Some(IR::ID("usize".to_string()));
+	    }
+	    else {
+		let temp_reg = format!("%{}", self.get_free_register());
+		let str_reg = format!("@.str.{}", self.get_free_register());
+		self.data_output += &format!("{} = private constant [{} x i8] c\"{}\\00\", align 1\n", str_reg, id.len()+1, id);
+		self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
+		self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
+		state.typ = Some(IR::ID("usize".to_string()));
+		self.strings.insert(id.to_string(), str_reg);
+	    }
 	}
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
@@ -410,6 +618,9 @@ impl CodeGen {
 		self.output += &format!("    ret {} {}\n", self.get_backend_type(state.expected_typ.clone().unwrap()), res);
 		self.end_of_block = true;
 		return reg;
+	    }
+	    if *name == "FaivycEvalute".to_string() {
+		return self.get_value(state, Self::const_interpret(args[0].clone()));
 	    }
 	    if *name == "SizeOf".to_string() {
 		let temp = self.get_free_register();
@@ -527,6 +738,7 @@ impl CodeGen {
 	reg
     }
     fn codegen(&mut self, state: &CodeGenState, ir: IR) -> CodeGenState {
+	println!("; {:?}\n", ir);
 	let mut state = state.clone();
 	if let IR::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir {
 	    let variables = self.local_variables.clone();
@@ -544,6 +756,7 @@ impl CodeGen {
 				name: format!("{}", x.name.clone()),
 				real_name: format!("%{}", arg),
 				typ: x.typ.clone(),
+				value: None
 			    }
 			}
 		    ).collect::<Vec<_>>();
@@ -576,6 +789,7 @@ impl CodeGen {
 				name: format!("{}", x.name.clone()),
 				real_name: format!("%{}", arg),
 				typ: x.typ.clone(),
+				value: None
 			    }
 			}
 		    ).collect::<Vec<_>>();
@@ -667,8 +881,10 @@ impl CodeGen {
 	    let rbody = self.get_free_register();
 	    let rreal_body = self.get_free_register();
 	    let rend = self.get_free_register();
+	    let sp = self.get_free_register();
 	    self.output += &format!("    br label %{}\n", rbody);
 	    self.output += &format!("{}:\n", rbody);
+	    self.output += &format!("    %{} = call ptr @llvm.stacksave()\n", sp);
 	    let rcond = self.get_value(&mut state, *cond.clone());
 	    if self.get_backend_type(state.typ.clone().unwrap()) != "i1".to_string() {
 		panic!("Excepted bool but got {:?}", state.typ.clone());
@@ -677,8 +893,10 @@ impl CodeGen {
 	    self.output += &format!("{}:\n", rreal_body);
 	    self.codegen(&state, *body.clone());
 	    self.end_of_block = false;
+	    self.output += &format!("    call void @llvm.stackrestore(ptr %{})\n", sp);
 	    self.output += &format!("    br label %{}\n", rbody);
 	    self.output += &format!("{}:\n", rend);
+	    self.output += &format!("    call void @llvm.stackrestore(ptr %{})\n", sp);
 	    self.local_variables = variables;
 	}
 	else if let IR::DeclareStructure(ref name, ref fields) = ir {
@@ -694,14 +912,18 @@ impl CodeGen {
 		    panic!("Excepted {:?} but got {:?}", Some(*typ.clone()), state.typ.clone());
 		}
 		let var = self.get_free_register();
-
+		
 		self.output += &format!("    %{} = alloca {}\n", var, self.get_backend_type(*typ.clone()));
 		self.output += &format!("    store {} {}, ptr %{}\n", self.get_backend_type(*typ.clone()), value, var);
 		
-		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", var), typ: Some(*typ.clone())});
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", var), value: None, typ: Some(*typ.clone())});
 	    }
-	    if let DeclarationType::Extern(ref ename) = *dt {		
-		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", ename), typ: Some(*typ.clone())});
+	    else if let DeclarationType::Extern(ref ename) = *dt {
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", ename), value: None, typ: Some(*typ.clone())});
+	    }
+	    else if let DeclarationType::Const = *dt {
+		let rn = self.get_value/*TODO: get string without compiler*/(&mut state, Self::const_interpret(*body.clone().unwrap()));
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: name.to_string(), value: Some(rn), typ: Some(*typ.clone())});
 	    }
 	}
 	else if let IR::Set(ref name, ref body) = ir {
@@ -721,6 +943,21 @@ impl CodeGen {
 		}
 		self.codegen(&mut state, inst.clone());
 	    }
+	}
+	else if let IR::Scope(ref insts) = ir {
+	    let variables = self.local_variables.clone();
+	    let sp = self.get_free_register();
+	    self.output += &format!("    %{} = call ptr @llvm.stacksave()\n", sp);
+	    for inst in insts {
+		if self.end_of_block {
+		    break;
+		}
+		self.codegen(&mut state, inst.clone());
+	    }
+	    if !self.end_of_block {
+		self.output += &format!("    call void @llvm.stackrestore(ptr %{})\n", sp);
+	    }
+	    self.local_variables = variables;
 	}
 	else if ir == IR::Dummy {
         }
@@ -803,7 +1040,7 @@ impl IRBuilder {
 	    Rule::WHITESPACE => IR::Dummy,
 	    Rule::program => IR::Block(ast.inner.into_iter().map(Self::build).collect()),
 	    Rule::stmt => IR::Block(ast.inner.into_iter().map(Self::build).collect()),
-	    Rule::block => IR::Block(ast.inner.into_iter().map(Self::build).collect()),
+	    Rule::block => IR::Scope(ast.inner.into_iter().map(Self::build).collect()),
 	    Rule::decl_extern_type => {
 		IR::Declaration(DeclarationType::Extern(ast.inner[0].span.clone()))
 	    },
@@ -815,6 +1052,9 @@ impl IRBuilder {
 	    },
 	    Rule::decl_forward_type => {
 		IR::Declaration(DeclarationType::Forward)
+	    },
+	    Rule::decl_const_type => {
+		IR::Declaration(DeclarationType::Const)
 	    },
 	    Rule::decl_type => {
 		Self::build(ast.inner[0].clone())
@@ -940,6 +1180,8 @@ fn main() {
     let mut codegen = CodeGen::new();
     codegen.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
     let mut code = String::new();
+    code += "declare ptr @llvm.stacksave()";
+    code += "declare void @llvm.stackrestore(ptr)";
     code += &codegen.data_output;
     code += &codegen.output;
     let mut rng = rand::rng();

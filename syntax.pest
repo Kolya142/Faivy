@@ -9,7 +9,8 @@ decl_extern_type	= { "extern" ~ identifier }
 decl_global_type	= { "global" }
 decl_local_type		= { "local" }
 decl_forward_type	= { "forward" }
-decl_type		= { decl_extern_type | decl_global_type | decl_local_type | decl_forward_type }
+decl_const_type		= { "const" }
+decl_type		= { decl_extern_type | decl_global_type | decl_local_type | decl_forward_type | decl_const_type }
 
 args			= { ( field ~ ( "," ~ field )* )? }
 expr_args		= { ( expr ~ ( "," ~ expr )* )? }

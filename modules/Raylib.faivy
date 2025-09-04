@@ -12,3 +12,7 @@ extern GetMouseWheelMove :: raylib_mouse_scroll :: () -> f32;
 extern EndDrawing :: raylib_end :: () -> void;
 extern WindowShouldClose :: raylib_window_closed :: () -> bool;
 extern OpenURL :: raylib_open_url :: (url: usize) -> void;
+extern IsKeyDown :: raylib_is_key_down :: (key: i32) -> bool;
+extern IsKeyPressed :: raylib_is_key_pressed :: (key: i32) -> bool;
+extern IsButtonDown :: raylib_is_button_down :: (bt: i32) -> bool;
+extern IsButtonPressed :: raylib_is_button_pressed :: (bt: i32) -> bool;

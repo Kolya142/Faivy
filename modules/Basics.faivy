@@ -17,12 +17,18 @@ extern cosf :: m_cos :: (rad: f32) -> f32;
 extern tanf :: m_tan :: (rad: f32) -> f32;
 extern atanf :: m_atan :: (value: f32) -> f32;
 extern powf :: m_pow :: (num: f32, power: f32) -> f32;
+extern srand :: set_random_seed :: (seed: i32) -> void;
+extern rand :: get_random_i32 :: () -> i32;
 
 extern system :: os_run :: (cmd: usize) -> i32;
 
 extern clock :: get_execution_ticks :: () -> usize;
 
 forward :: print_str :: (data: usize) -> void;
+
+const :: M_PI :: f32 = 3.14159265359;
+const :: M_E :: f32 = 2.71828182846;
+
 
 global :: m_log :: (value: f32, base: f32) -> f32 {
     return(m_log10(value)/m_log10(base));
