@@ -1,58 +1,58 @@
-extern exit :: exit :: void -> (code: i32);
-extern write :: libc_write :: isize -> (fd: i32, buf: usize, count: usize);
-extern read :: libc_read :: isize -> (fd: i32, buf: usize, count: usize);
-extern strlen :: get_length_of_string :: usize -> (buf: usize);
-extern memmove/*memcpy*/ :: copy_bytes :: usize -> (dst: usize, src: usize, count: usize);
-extern memset :: fill_bytes :: usize -> (dst: usize, value: u8, count: usize);
-extern strcmp :: libc_compare_strings :: i32 -> (a: usize, b: usize);
-extern malloc :: libc_alloc :: usize -> (size: usize);
-extern free :: free :: void -> (buf: usize);
-extern time :: libc_time :: usize -> (timer: usize);
+extern exit :: exit :: (code: i32) -> void;
+extern write :: libc_write :: (fd: i32, buf: usize, count: usize) -> isize;
+extern read :: libc_read :: (fd: i32, buf: usize, count: usize) -> isize;
+extern strlen :: get_length_of_string :: (buf: usize) -> usize;
+extern memmove/*memcpy*/ :: copy_bytes :: (dst: usize, src: usize, count: usize) -> usize;
+extern memset :: fill_bytes :: (dst: usize, value: u8, count: usize) -> usize;
+extern strcmp :: libc_compare_strings :: (a: usize, b: usize) -> i32;
+extern malloc :: libc_alloc :: (size: usize) -> usize;
+extern free :: free :: (buf: usize) -> void;
+extern time :: libc_time :: (timer: usize) -> usize;
 
-extern putchar :: print_char :: void -> (value: u8);
+extern putchar :: print_char :: (value: u8) -> void;
 
-extern logf :: m_log10 :: f32 -> (value: f32);
-extern sinf :: m_sin :: f32 -> (rad: f32);
-extern cosf :: m_cos :: f32 -> (rad: f32);
-extern tanf :: m_tan :: f32 -> (rad: f32);
-extern atanf :: m_atan :: f32 -> (value: f32);
-extern powf :: m_pow :: f32 -> (num: f32, power: f32);
+extern logf :: m_log10 :: (value: f32) -> f32;
+extern sinf :: m_sin :: (rad: f32) -> f32;
+extern cosf :: m_cos :: (rad: f32) -> f32;
+extern tanf :: m_tan :: (rad: f32) -> f32;
+extern atanf :: m_atan :: (value: f32) -> f32;
+extern powf :: m_pow :: (num: f32, power: f32) -> f32;
 
-extern system :: os_run :: i32 -> (cmd: usize);
+extern system :: os_run :: (cmd: usize) -> i32;
 
-extern clock :: get_execution_ticks :: usize -> ();
+extern clock :: get_execution_ticks :: () -> usize;
 
-forward :: print_str :: void -> (data: usize);
+forward :: print_str :: (data: usize) -> void;
 
-global :: m_log :: f32 -> (value: f32, base: f32) {
+global :: m_log :: (value: f32, base: f32) -> f32 {
     return(m_log10(value)/m_log10(base));
 }
 
-global :: m_log2 :: f32 -> (value: f32) {
+global :: m_log2 :: (value: f32) -> f32 {
     return(m_log10(value)/0.30103);
 }
 
-global :: i32_to_f32 :: f32 -> (i: i32) {
+global :: i32_to_f32 :: (i: i32) -> f32 {
     #llvm "%result = sitofp i32 %i to float";
     #llvm "ret float %result";
 }
 
-global :: f32_to_i32 :: i32 -> (i: f32) {
+global :: f32_to_i32 :: (i: f32) -> i32 {
     #llvm "%result = fptosi float %i to i32";
     #llvm "ret i32 %result";
 }
 
-global :: get_unix_seconds :: usize -> () {
+global :: get_unix_seconds :: () -> usize {
     return(libc_time(0));
 }
 
-global :: panic :: void -> (msg: usize) {
+global :: panic :: (msg: usize) -> void {
     print_str("Panic at TODO.faivy(TODO:TODO): ");
     print_str(msg);
     exit(cast(1, i32));
 }
 
-global :: alloc :: usize -> (size: usize) {
+global :: alloc :: (size: usize) -> usize {
     local :: result :: usize = libc_alloc(size);
     result == 0 :: if {
         panic("alloc failed: OOM");
@@ -60,31 +60,29 @@ global :: alloc :: usize -> (size: usize) {
     return(result);
 }
 
-global :: is_strings_equal/*strcmp*/ :: bool -> (a: usize, b: usize) {
+global :: is_strings_equal/*strcmp*/ :: (a: usize, b: usize) -> bool {
     return(libc_compare_strings(a, b) == cast(0, i32));
 }
 
-global :: print_str :: void -> (data: usize) {
+global :: print_str :: (data: usize) -> void {
     libc_write(cast(1, i32), data, get_length_of_string(data));
 }
 
-global :: print_usize :: void -> (a: usize) {
+global :: print_usize :: (a: usize) -> void {
     a == 0 :: if {
-	print_str("0");
-	return_void();
+        print_str("0");
+        return_void();
     }
     
-    local :: buf :: Ptr(u8) = cast(alloc(11), Ptr(u8));
-    local :: p :: usize = 10;
+    local :: buf :: Ptr(u8) = cast(alloc_stack(64), Ptr(u8));
+    local :: p :: usize = 63;
     poke(buf+cast(p, Ptr(u8)), cast(0, u8));
     
-    a != 0 :: if {
-	p := p - 1;
-	poke(buf+cast(p, Ptr(u8)), cast(48+(a%10), u8));
-	a := a / 10;
+    a != 0 :: while {
+        p := p - 1;
+        poke(buf+cast(p, Ptr(u8)), cast(48+(a%10), u8));
+        a := a / 10;
     }
     
     print_str(cast(buf+cast(p, Ptr(u8)), usize));
-    
-    free(cast(buf, usize));
 }

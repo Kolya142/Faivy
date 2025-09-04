@@ -30,7 +30,7 @@ enum BinOpKind {
     And,
     Or,
     Xor,
-    // Dot,
+    Dot,
     Eq,
     NEq,
     Less,
@@ -39,14 +39,13 @@ enum BinOpKind {
     BiggerOrEq,
 }
 
-/*#[derive(Debug,Clone,PartialEq)]
+#[derive(Debug,Clone,PartialEq)]
 enum UnaryOpKind {
     Not,
     Minus,
     Plus,
     LNot
 }
-*/
 
 #[derive(Debug,Clone,PartialEq)]
 enum IR {
@@ -62,7 +61,7 @@ enum IR {
     Call(String, Vec<IR>),
     Set(Box<IR>, Box<IR>),
     BinOp(BinOpKind, Box<IR>, Box<IR>),
-    // UnaryOp(UnaryOpKind, Box<IR>),
+    UnaryOp(UnaryOpKind, Box<IR>),
     Block(Vec<IR>),
     Import(String),
     Asm(String),
@@ -94,13 +93,12 @@ struct CodeGenFunction {
     decl: DeclarationType,
 }
 
-/*
 #[derive(Debug,Clone,PartialEq)]
 struct CodeGenStruct {
+    real_name: String,
     name: String,
     fields: Vec<CodeGenVariable>,
 }
-*/
 
 #[derive(Debug,Clone,PartialEq)]
 struct CodeGenState {
@@ -117,7 +115,7 @@ struct CodeGen {
     functions: Vec<CodeGenFunction>,
     // global_variables: Vec<CodeGenFakeableVariable>,
     local_variables: Vec<CodeGenFakeableVariable>,
-    // structs: Vec<CodeGenStruct>,
+    structs: Vec<CodeGenStruct>,
     oid: usize,
 }
 
@@ -130,7 +128,7 @@ impl CodeGen {
 	    functions: vec![],
 	    // global_variables: vec![],
 	    local_variables: vec![],
-	    // structs: vec![],
+	    structs: vec![],
 	    oid: 0,
 	}
     }
@@ -139,162 +137,243 @@ impl CodeGen {
 	self.oid += 1;
 	name
     }
-    fn get_function_def_args(args: Vec<CodeGenVariable>) -> String {
-	return args.into_iter().map(|x| format!("{} %{}", Self::get_backend_type(x.typ.unwrap()), x.name)).collect::<Vec<_>>().join(", ");
+    fn get_function_def_args(&self, args: Vec<CodeGenVariable>) -> String {
+	return args.into_iter().map(|x| format!("{} %{}", self.get_backend_type(x.typ.unwrap()), x.name)).collect::<Vec<_>>().join(", ");
     }
-    fn get_backend_type(symname: IR) -> &'static str {
+    fn get_backend_type(&self, symname: IR) -> String {
 	if let IR::Call(ref name, _) = symname {
 	    if *name == "Ptr".to_string() {
-		return "i64";
+		return "i64".to_string();
 	    }
 	}
  	else if symname == IR::ID("bool".to_string()) {
-	    return "i1";
+	    return "i1".to_string();
 	}
  	else if symname == IR::ID("i32".to_string()) {
-	    return "i32";
+	    return "i32".to_string();
 	}
 	else if symname == IR::ID("u32".to_string()) {
-	    return "i32";
+	    return "i32".to_string();
 	}
 	else if symname == IR::ID("i64".to_string()) {
-	    return "i64";
+	    return "i64".to_string();
 	}
 	else if symname == IR::ID("f32".to_string()) {
-	    return "float";
+	    return "float".to_string();
 	}
 	else if symname == IR::ID("u64".to_string()) {
-	    return "i64";
+	    return "i64".to_string();
 	}
 	else if symname == IR::ID("isize".to_string()) {
-	    return "i64";
+	    return "i64".to_string();
 	}
 	else if symname == IR::ID("usize".to_string()) {
-	    return "i64";
+	    return "i64".to_string();
 	}
 	else if symname == IR::ID("i8".to_string()) {
-	    return "i8";
+	    return "i8".to_string();
 	}
 	else if symname == IR::ID("u8".to_string()) {
-	    return "i8";
+	    return "i8".to_string();
 	}
 	else if symname == IR::ID("void".to_string()) {
-	    return "void";
+	    return "void".to_string();
 	}
 	else if symname == IR::ID("i16".to_string()) {
-	    return "i16";
+	    return "i16".to_string();
 	}
 	else if symname == IR::ID("u16".to_string()) {
-	    return "i16";
+	    return "i16".to_string();
 	}
-	return "i64";
+	for structure in &self.structs {
+	    if IR::ID(structure.name.clone()) == symname {
+		return structure.real_name.clone();
+	    }
+	}
+	return "i64".to_string();
     }
     fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
 	let reg = format!("%{}", self.get_free_register());
 	if let IR::BinOp(op, elhs, erhs) = ir {
-	    // let res: Vec<u8> = vec![];
-	    let lhs = self.get_value(state, *elhs.clone());
-	    let lt = state.typ.clone();
-	    let rhs = self.get_value(state, *erhs.clone());
-	    let rt = state.typ.clone();
-	    if lt != rt {
-		panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?}", elhs, lt, erhs, rt);
+	    
+	    if op == BinOpKind::Dot {
+		let lhs = self.get_value(state, *elhs.clone());
+		let lt = state.typ.clone().unwrap();
+		let ptr_reg = self.get_free_register();
+		let temp_reg = self.get_free_register();
+
+		if let IR::Call(ref name, ref ltv) = lt {
+		    let lt = ltv[0].clone();
+		    if *name == "Ptr".to_string() {
+			for structure in &self.structs {
+			    if IR::ID(structure.name.clone()) == lt {
+				let mut fieldi = 0;
+				while fieldi < structure.fields.len() {
+				    if IR::ID(structure.fields[fieldi].name.clone()) == *erhs {
+					break;
+				    }
+				    fieldi += 1;
+				}
+				if fieldi == structure.fields.len() {
+				    panic!("Failed to find element {:?} of structure {:?}", erhs, lt);
+				}
+				self.output += &format!("    %{} = inttoptr i64 {} to ptr\n", ptr_reg, lhs);
+				self.output += &format!("    %{} = getelementptr inbounds {}, ptr %{}, i32 0, i32 {}\n", temp_reg, self.get_backend_type(lt), ptr_reg, fieldi);
+				self.output += &format!("    {} = ptrtoint ptr %{} to i64\n", reg, temp_reg);
+				state.typ = Some(IR::Call("Ptr".to_string(), vec![structure.fields[fieldi].typ.clone().unwrap()]));
+
+				return reg;
+			    }
+			}
+
+			panic!("Failed to find structure {:?}", lt);
+		    }
+
+		    else {
+			panic!("{:?} - not a pointer to a structure", lt);
+		    }
+		}
 	    }
-	    let lt = Self::get_backend_type(lt.unwrap());
-	    if lt == "float".to_string() {
-		if op == BinOpKind::Add {
-		    self.output += &format!("    {} = fadd {} {}, {}\n", reg, lt, lhs, rhs);
+	    else {
+		// let res: Vec<u8> = vec![];
+		let lhs = self.get_value(state, *elhs.clone());
+		let lt = state.typ.clone();
+		let rhs = self.get_value(state, *erhs.clone());
+		let rt = state.typ.clone();
+		if lt != rt {
+		    panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?}", elhs, lt, erhs, rt);
 		}
-		else if op == BinOpKind::Sub {
-		    self.output += &format!("    {} = fsub {} {}, {}\n", reg, lt, lhs, rhs);
+		let lt = self.get_backend_type(lt.unwrap());
+		if lt == "float".to_string() {
+		    if op == BinOpKind::Add {
+			self.output += &format!("    {} = fadd {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Sub {
+			self.output += &format!("    {} = fsub {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Mul {
+			self.output += &format!("    {} = fmul {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Div {
+			self.output += &format!("    {} = fdiv {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Mod {
+			self.output += &format!("    {} = frem {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Eq {
+			self.output += &format!("    {} = fcmp oeq {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::NEq {
+			self.output += &format!("    {} = fcmp one {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::Less {
+			self.output += &format!("    {} = fcmp olt {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::Bigger {
+			self.output += &format!("    {} = fcmp ogt {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			self.output += &format!("    {} = fcmp ole {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			self.output += &format!("    {} = fcmp oge {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
 		}
-		else if op == BinOpKind::Mul {
-		    self.output += &format!("    {} = fmul {} {}, {}\n", reg, lt, lhs, rhs);
+		else {
+		    if op == BinOpKind::Add {
+			self.output += &format!("    {} = add {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Sub {
+			self.output += &format!("    {} = sub {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Mul {
+			self.output += &format!("    {} = mul {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Div {
+			self.output += &format!("    {} = udiv {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Mod {
+			self.output += &format!("    {} = urem {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::LShft {
+			self.output += &format!("    {} = shl {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::RShft {
+			self.output += &format!("    {} = lshr {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::And {
+			self.output += &format!("    {} = and {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Or {
+			self.output += &format!("    {} = or {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Xor {
+			self.output += &format!("    {} = xor {} {}, {}\n", reg, lt, lhs, rhs);
+		    }
+		    else if op == BinOpKind::Eq {
+			self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::NEq {
+			self.output += &format!("    {} = icmp ne {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::Less {
+			self.output += &format!("    {} = icmp ult {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::Bigger {
+			self.output += &format!("    {} = icmp ugt {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			self.output += &format!("    {} = icmp ule {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			self.output += &format!("    {} = icmp uge {} {}, {}\n", reg, lt, lhs, rhs);
+			state.typ = Some(IR::ID("bool".to_string()));
+		    }
 		}
-		else if op == BinOpKind::Div {
-		    self.output += &format!("    {} = fdiv {} {}, {}\n", reg, lt, lhs, rhs);
+	    }
+	}
+	else if let IR::UnaryOp(op, evl) = ir {
+	    // let res: Vec<u8> = vec![];
+	    let vl = self.get_value(state, *evl.clone());
+	    let vlt = self.get_backend_type(state.typ.clone().unwrap());
+	    if vlt == "float".to_string() {
+		if op == UnaryOpKind::Plus {
+		    self.output += &format!("    {} = fadd {} 0x{:016X}, {}\n", reg, vlt, 0.0_f64.to_bits(), vl);
 		}
-		else if op == BinOpKind::Mod {
-		    self.output += &format!("    {} = frem {} {}, {}\n", reg, lt, lhs, rhs);
+		else if op == UnaryOpKind::Minus {
+		    self.output += &format!("    {} = fsub {} 0x{:016X}, {}\n", reg, vlt, 0.0_f64.to_bits(), vl);
 		}
-		else if op == BinOpKind::Eq {
-		    self.output += &format!("    {} = fcmp oeq {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
+		else if op == UnaryOpKind::Not {
+		    todo!("binary not doesn't implemented for f32 yet");
 		}
-		else if op == BinOpKind::NEq {
-		    self.output += &format!("    {} = fcmp one {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::Less {
-		    self.output += &format!("    {} = fcmp olt {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::Bigger {
-		    self.output += &format!("    {} = fcmp ogt {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::LessOrEq {
-		    self.output += &format!("    {} = fcmp ole {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::BiggerOrEq {
-		    self.output += &format!("    {} = fcmp oge {} {}, {}\n", reg, lt, lhs, rhs);
+		else if op == UnaryOpKind::LNot {
+		    self.output += &format!("    {} = fcmp oeq {} 0x{:016X}, {}\n", reg, vlt, 0.0_f64.to_bits(), vl);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
 	    else {
-		if op == BinOpKind::Add {
-		    self.output += &format!("    {} = add {} {}, {}\n", reg, lt, lhs, rhs);
+		if op == UnaryOpKind::Plus {
+		    self.output += &format!("    {} = add {} 0, {}\n", reg, vlt, vl);
 		}
-		else if op == BinOpKind::Sub {
-		    self.output += &format!("    {} = sub {} {}, {}\n", reg, lt, lhs, rhs);
+		else if op == UnaryOpKind::Minus {
+		    self.output += &format!("    {} = sub {} 0, {}\n", reg, vlt, vl);
 		}
-		else if op == BinOpKind::Mul {
-		    self.output += &format!("    {} = mul {} {}, {}\n", reg, lt, lhs, rhs);
+		else if op == UnaryOpKind::Not {
+		    self.output += &format!("    {} = xor {} -1, {}\n", reg, vlt, vl);
 		}
-		else if op == BinOpKind::Div {
-		    self.output += &format!("    {} = udiv {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::Mod {
-		    self.output += &format!("    {} = urem {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::LShft {
-		    self.output += &format!("    {} = shl {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::RShft {
-		    self.output += &format!("    {} = lshr {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::And {
-		    self.output += &format!("    {} = and {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::Or {
-		    self.output += &format!("    {} = or {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::Xor {
-		    self.output += &format!("    {} = xor {} {}, {}\n", reg, lt, lhs, rhs);
-		}
-		else if op == BinOpKind::Eq {
-		    self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::NEq {
-		    self.output += &format!("    {} = icmp ne {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::Less {
-		    self.output += &format!("    {} = icmp ult {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::Bigger {
-		    self.output += &format!("    {} = icmp ugt {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::LessOrEq {
-		    self.output += &format!("    {} = icmp ule {} {}, {}\n", reg, lt, lhs, rhs);
-		    state.typ = Some(IR::ID("bool".to_string()));
-		}
-		else if op == BinOpKind::BiggerOrEq {
-		    self.output += &format!("    {} = icmp uge {} {}, {}\n", reg, lt, lhs, rhs);
+		else if op == UnaryOpKind::LNot {
+		    self.output += &format!("    {} = icmp eq {} 0, {}\n", reg, vlt, vl);
 		    state.typ = Some(IR::ID("bool".to_string()));
 		}
 	    }
@@ -302,7 +381,7 @@ impl CodeGen {
 	else if let IR::ID(ref id) = ir {
 	    for var in self.local_variables.clone() {
 		if var.name == *id {
-		    self.output += &format!("    {} = load {}, ptr {}\n", reg, Self::get_backend_type(var.typ.clone().unwrap()), var.real_name);
+		    self.output += &format!("    {} = load {}, ptr {}\n", reg, self.get_backend_type(var.typ.clone().unwrap()), var.real_name);
 		    state.typ = var.typ.clone();
 		    return reg;
 		}
@@ -310,8 +389,8 @@ impl CodeGen {
 	    panic!("Failed to found variable `{}`", id);
 	}
 	else if let IR::Integer(ref int) = ir {
-	    self.output += &format!("    {} = add i64 0, {}\n", reg, int);
 	    state.typ = Some(IR::ID("usize".to_string()));
+	    return format!("{}", int);
 	}
 	else if let IR::Float(ref int) = ir {
 	    self.output += &format!("    {} = fadd float 0x{:016X}, 0x{:016X}\n", reg, (0.0_f32 as f64).to_bits(), ((*int) as f64).to_bits());
@@ -328,8 +407,15 @@ impl CodeGen {
 	else if let IR::Call(ref name, ref args) = ir {
 	    if *name == "return".to_string() {
 		let res = self.get_value(state, args[0].clone());
-		self.output += &format!("    ret {} {}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), res);
+		self.output += &format!("    ret {} {}\n", self.get_backend_type(state.expected_typ.clone().unwrap()), res);
 		self.end_of_block = true;
+		return reg;
+	    }
+	    if *name == "SizeOf".to_string() {
+		let temp = self.get_free_register();
+		self.output += &format!("     %{} = getelementptr {}, ptr null, i32 1\n", temp, self.get_backend_type(args[0].clone()));
+		self.output += &format!("     {} = ptrtoint ptr %{} to i64\n", reg, temp);
+		state.typ = Some(IR::ID("usize".to_string()));
 		return reg;
 	    }
 	    if *name == "return_void".to_string() {
@@ -337,19 +423,29 @@ impl CodeGen {
 		self.end_of_block = true;
 		return reg;
 	    }
+	    if *name == "alloc_stack".to_string() {
+		let res = self.get_value(state, args[0].clone());
+		
+		let tmp = self.get_free_register();
+
+		self.output += &format!("    %{} = alloca i8, i64 {}, align 16\n", tmp, res);
+		self.output += &format!("    {} = ptrtoint ptr %{} to i64\n", reg, tmp);
+		state.typ = Some(IR::ID("usize".to_string()));
+		return reg;
+	    }
 	    if *name == "cast".to_string() {
 		let value = self.get_value(state, args[0].clone());
-		let ntyp = Self::get_backend_type(args[1].clone());
-		let lsize = Self::get_backend_type(state.typ.clone().unwrap())[1..].parse::<usize>().unwrap();
+		let ntyp = self.get_backend_type(args[1].clone());
+		let lsize = self.get_backend_type(state.typ.clone().unwrap())[1..].parse::<usize>().unwrap();
 		let rsize = ntyp[1..].parse::<usize>().unwrap();
 		if lsize == rsize {
 		    self.output += &format!("    {} = add {} 0, {}\n", reg, ntyp, value);
 		}
 		else if lsize > rsize {
-		    self.output += &format!("    {} = trunc {} {} to {}\n", reg, Self::get_backend_type(state.typ.clone().unwrap()), value, ntyp);
+		    self.output += &format!("    {} = trunc {} {} to {}\n", reg, self.get_backend_type(state.typ.clone().unwrap()), value, ntyp);
 		}
 		else if lsize < rsize {
-		    self.output += &format!("    {} = zext {} {} to {}\n", reg, Self::get_backend_type(state.typ.clone().unwrap()), value, ntyp);
+		    self.output += &format!("    {} = zext {} {} to {}\n", reg, self.get_backend_type(state.typ.clone().unwrap()), value, ntyp);
 		}
 		state.typ = Some(args[1].clone());
 		return reg;
@@ -358,13 +454,13 @@ impl CodeGen {
 		let int_addr = self.get_value(state, args[0].clone());
 		let addr = format!("%{}", self.get_free_register());
 		
-		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, Self::get_backend_type(state.typ.clone().unwrap()), int_addr);
+		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, self.get_backend_type(state.typ.clone().unwrap()), int_addr);
 		
 		if let Some(IR::Call(wrapper, args)) = &state.typ {
 		    if *wrapper != "Ptr".to_string() {
 			panic!("Tried to peek from not a pointer {:?}", args[0].clone());
 		    }
-		    let elem_type = Self::get_backend_type(args[0].clone());
+		    let elem_type = self.get_backend_type(args[0].clone());
 		    
 		    self.output += &format!("    {} = load {}, ptr {}\n", reg, elem_type, addr);
 
@@ -383,16 +479,16 @@ impl CodeGen {
 		let addr = format!("%{}", self.get_free_register());
 		let oargs = args.clone();
 		
-		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, Self::get_backend_type(addr_typ.clone().unwrap()), int_addr);
+		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, self.get_backend_type(addr_typ.clone().unwrap()), int_addr);
 		
 		if let Some(IR::Call(wrapper, args)) = addr_typ.clone() {
 		    if *wrapper != "Ptr".to_string() {
 			panic!("Tried to poke to not a pointer {:?}({:?})", oargs[0].clone(), addr_typ);
 		    }
 		    if args[0].clone() != value_typ.clone().unwrap() {
-			panic!("Tried to poke a value {:?} that doesn't compatiable with the pointer {:?}", oargs[1].clone(), oargs[0].clone());
+			panic!("Tried to poke a value {:?} that doesn't compatiable with the pointer {:?}({:?})", oargs[1].clone(), oargs[0].clone(), addr_typ);
 		    }
-		    let elem_type = Self::get_backend_type(value_typ.unwrap());
+		    let elem_type = self.get_backend_type(value_typ.unwrap());
 		    
 		    self.output += &format!("    store {} {}, ptr {}\n", elem_type, value, addr);
 		    state.typ = Some(IR::ID("i32".to_string()));
@@ -413,10 +509,10 @@ impl CodeGen {
 			if state.typ.clone() != Some(func.args[arg].typ.clone().unwrap()) {
 			    panic!("Excepted type {:?} at call {} but got type {:?}", func.args[arg].typ.clone().unwrap(), *name, state.typ.clone().unwrap());
 			}
-			arg_regs.push(format!("{} {}", Self::get_backend_type(func.args[arg].typ.clone().unwrap()), areg));
+			arg_regs.push(format!("{} {}", self.get_backend_type(func.args[arg].typ.clone().unwrap()), areg));
 		    }
-		    if Self::get_backend_type(func.typ.clone()) != "void".to_string() {
-			self.output += &format!("    {} = call ccc {} @{}({})\n", reg, Self::get_backend_type(func.typ.clone()), func.real_name, arg_regs.join(", "));
+		    if self.get_backend_type(func.typ.clone()) != "void".to_string() {
+			self.output += &format!("    {} = call ccc {} @{}({})\n", reg, self.get_backend_type(func.typ.clone()), func.real_name, arg_regs.join(", "));
 			state.typ = Some(func.typ);
 		    }
 		    else {
@@ -426,32 +522,6 @@ impl CodeGen {
 		    return reg;
 		}
 	    }
-	    /*
-	    for structure in self.structs.clone() {
-		if structure.name == *name {
-		    let mut res: Vec<u8> = vec![];
-		    let mut args = args.clone();
-		    if args.len() != structure.fields.len() {
-			panic!("Excepted {} arguments but got {} arguments", structure.fields.len(), args.len());
-		    }
-		    res.push(b'(');
-		    res.extend(name.bytes().collect::<Vec<u8>>());
-		    res.push(b')');
-		    res.push(b'{');
-		    for arg in 0..args.len()-1 {
-			res.extend(self.get_value(state, args[arg].clone()).unwrap());
-			res.push(b',');
-		    }
-		    if args.len() > 0 {
-			let arg = args.len()-1;
-			res.extend(self.get_value(state, args[arg].clone()).unwrap());
-		    }
-		    res.push(b'}');
-		    res.push(b'\n');
-		    return Some(res);
-		}
-	}
-	     */
 	    panic!("Failed to found function/structure `{}`", name);
 	}
 	reg
@@ -462,14 +532,14 @@ impl CodeGen {
 	    let variables = self.local_variables.clone();
 	    if *dt == DeclarationType::Global {
 		state.expected_typ = Some(*typ.clone());
-		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), name, Self::get_function_def_args(args.to_vec()));
+		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", self.get_backend_type(state.expected_typ.clone().unwrap()), name, self.get_function_def_args(args.to_vec()));
 		let argv =
 		    args.into_iter()
 		    .map(
 			|x| {
 			    let arg = self.get_free_register();
-			    self.output += &format!("    %{} = alloca {}\n", arg.clone(), Self::get_backend_type(x.typ.clone().unwrap()));
-			    self.output += &format!("    store {} %{}, ptr %{}\n", Self::get_backend_type(x.typ.clone().unwrap()), x.name.clone(), arg.clone());
+			    self.output += &format!("    %{} = alloca {}\n", arg.clone(), self.get_backend_type(x.typ.clone().unwrap()));
+			    self.output += &format!("    store {} %{}, ptr %{}\n", self.get_backend_type(x.typ.clone().unwrap()), x.name.clone(), arg.clone());
 			    CodeGenFakeableVariable{
 				name: format!("{}", x.name.clone()),
 				real_name: format!("%{}", arg),
@@ -480,11 +550,11 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		if Self::get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
+		if self.get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
 		    self.output += "    ret float 0.0\n}\n";
 		}
-		else if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
-		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
+		else if self.get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		    self.output += &format!("    ret {} 0\n}}\n", self.get_backend_type(state.expected_typ.clone().unwrap()));
 		}
 		else {
 		    self.output += &format!("    ret void\n}}\n");
@@ -494,14 +564,14 @@ impl CodeGen {
 	    else if *dt == DeclarationType::Local {
 		state.expected_typ = Some(*typ.clone());
 		let reg = self.get_free_register();
-		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", Self::get_backend_type(state.expected_typ.clone().unwrap()), reg, Self::get_function_def_args(args.to_vec()));
+		self.output += &format!("define ccc {} @{}({}) {{\nentry:\n", self.get_backend_type(state.expected_typ.clone().unwrap()), reg, self.get_function_def_args(args.to_vec()));
 		let argv =
 		    args.into_iter()
 		    .map(
 			|x| {
 			    let arg = self.get_free_register();
-			    self.output += &format!("    %{} = alloca {}\n", arg.clone(), Self::get_backend_type(x.typ.clone().unwrap()));
-			    self.output += &format!("    store {} %{}, ptr %{}\n", Self::get_backend_type(x.typ.clone().unwrap()), x.name.clone(), arg.clone());
+			    self.output += &format!("    %{} = alloca {}\n", arg.clone(), self.get_backend_type(x.typ.clone().unwrap()));
+			    self.output += &format!("    store {} %{}, ptr %{}\n", self.get_backend_type(x.typ.clone().unwrap()), x.name.clone(), arg.clone());
 			    CodeGenFakeableVariable{
 				name: format!("{}", x.name.clone()),
 				real_name: format!("%{}", arg),
@@ -512,11 +582,11 @@ impl CodeGen {
 		self.local_variables.extend(argv);
 		self.codegen(&state, *body.clone().unwrap());
 		self.end_of_block = false;
-		if Self::get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
+		if self.get_backend_type(state.expected_typ.clone().unwrap()) == "float" {
 		    self.output += "    ret float 0.0\n}\n";
 		}
-		else if Self::get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
-		    self.output += &format!("    ret {} 0\n}}\n", Self::get_backend_type(state.expected_typ.clone().unwrap()));
+		else if self.get_backend_type(state.expected_typ.clone().unwrap()) != "void" {
+		    self.output += &format!("    ret {} 0\n}}\n", self.get_backend_type(state.expected_typ.clone().unwrap()));
 		}
 		else {
 		    self.output += &format!("    ret void\n}}\n");
@@ -524,7 +594,7 @@ impl CodeGen {
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: reg.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
-		self.output += &format!("declare ccc i32 @{}({})\n", ename, Self::get_function_def_args(args.to_vec()));
+		self.output += &format!("declare ccc i32 @{}({})\n", ename, self.get_function_def_args(args.to_vec()));
 		self.functions.push(CodeGenFunction{name: name.to_string(), real_name: ename.to_string(), typ: *typ.clone(), args: args.clone(), decl: dt.clone()});
 	    }
 	    else if let DeclarationType::Forward = *dt {
@@ -600,7 +670,7 @@ impl CodeGen {
 	    self.output += &format!("    br label %{}\n", rbody);
 	    self.output += &format!("{}:\n", rbody);
 	    let rcond = self.get_value(&mut state, *cond.clone());
-	    if Self::get_backend_type(state.typ.clone().unwrap()) != "i1".to_string() {
+	    if self.get_backend_type(state.typ.clone().unwrap()) != "i1".to_string() {
 		panic!("Excepted bool but got {:?}", state.typ.clone());
 	    }
 	    self.output += &format!("    br i1 {}, label %{}, label %{}\n", rcond, rreal_body, rend);
@@ -611,26 +681,34 @@ impl CodeGen {
 	    self.output += &format!("{}:\n", rend);
 	    self.local_variables = variables;
 	}
-	else if let IR::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
-	    if *dt != DeclarationType::Local {
-		panic!("Global and Extern variables currently doesn't avaliable yet");
-	    }
-	    let value = self.get_value(&mut state, *body.clone().unwrap());
-	    if state.typ.clone() != Some(*typ.clone()) {
-		panic!("Excepted {:?} but got {:?}", Some(*typ.clone()), state.typ.clone());
-	    }
-	    let var = self.get_free_register();
-
-	    self.output += &format!("    %{} = alloca {}\n", var, Self::get_backend_type(*typ.clone()));
-	    self.output += &format!("    store {} {}, ptr %{}\n", Self::get_backend_type(*typ.clone()), value, var);
+	else if let IR::DeclareStructure(ref name, ref fields) = ir {
+	    let sid = format!("%{}", self.get_free_register());
+	    self.output += &format!("{} = type {{{}}}\n", sid, fields.into_iter().map(|x| format!("{}", self.get_backend_type(x.typ.clone().unwrap()))).collect::<Vec<_>>().join(", "));
 	    
-	    self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", var), typ: Some(*typ.clone())});
+	    self.structs.push(CodeGenStruct{name: name.to_string(), real_name: sid, fields: fields.to_vec()});
+	}
+	else if let IR::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
+	    if *dt == DeclarationType::Local {
+		let value = self.get_value(&mut state, *body.clone().unwrap());
+		if state.typ.clone() != Some(*typ.clone()) {
+		    panic!("Excepted {:?} but got {:?}", Some(*typ.clone()), state.typ.clone());
+		}
+		let var = self.get_free_register();
+
+		self.output += &format!("    %{} = alloca {}\n", var, self.get_backend_type(*typ.clone()));
+		self.output += &format!("    store {} {}, ptr %{}\n", self.get_backend_type(*typ.clone()), value, var);
+		
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", var), typ: Some(*typ.clone())});
+	    }
+	    if let DeclarationType::Extern(ref ename) = *dt {		
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", ename), typ: Some(*typ.clone())});
+	    }
 	}
 	else if let IR::Set(ref name, ref body) = ir {
 	    let value = self.get_value(&mut state, *body.clone());
 	    for var in self.local_variables.clone() {
 		if IR::ID(var.name) == **name {
-		    self.output += &format!("    store {} {}, ptr {}\n", Self::get_backend_type(var.typ.clone().unwrap()), value, var.real_name);
+		    self.output += &format!("    store {} {}, ptr {}\n", self.get_backend_type(var.typ.clone().unwrap()), value, var.real_name);
 		    return state;
 		}
 	    }
@@ -752,7 +830,12 @@ impl IRBuilder {
 		    IR::Float(ast.span.clone().parse::<f32>().unwrap())
 		}
 		else {
-		    IR::Integer(ast.span.clone().parse::<u64>().unwrap())
+		    if ast.span.clone().starts_with("0x") {
+			IR::Integer(u64::from_str_radix(&ast.span.clone()[2..], 16).unwrap())
+		    }
+		    else {
+			IR::Integer(ast.span.clone().parse::<u64>().unwrap())
+		    }
 		}
 	    },
 	    Rule::primary => {
@@ -778,8 +861,19 @@ impl IRBuilder {
 		    BinOpKind::NEq } else if op == "&".to_string() {
 		    BinOpKind::And } else if op == "|".to_string() {
 		    BinOpKind::Or } else if op == "^".to_string() {
-		    BinOpKind::Xor } else {todo!()};
+		    BinOpKind::Xor } else if op == "->".to_string() {
+		    BinOpKind::Dot } else {todo!()};
 		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
+	    },
+	    Rule::unaryop => {
+		let op = ast.inner[0].span.clone();
+		let vl = Self::build(ast.inner[1].clone());
+		let unopkind = if op == "+".to_string() {
+		    UnaryOpKind::Plus } else if op == "-".to_string() {
+		    UnaryOpKind::Minus } else if op == "~".to_string() {
+		    UnaryOpKind::Not } else if op == "!".to_string() {
+		    UnaryOpKind::LNot } else {todo!()};
+		IR::UnaryOp(unopkind, Box::new(vl))
 	    },
 	    Rule::expr_atom => {
 		Self::build(ast.inner[0].clone())
@@ -808,8 +902,8 @@ impl IRBuilder {
 	    Rule::func => {
 		let IR::Declaration(decl) = Self::build(ast.inner[0].clone()) else {panic!()};
 		let IR::ID(name) = Self::build(ast.inner[1].clone()) else {panic!()};
-		let typ = Self::build(ast.inner[2].clone());
-		IR::DeclareFunction(decl, name, Box::new(typ), Self::build_args(ast.inner[3].clone()).unwrap(), if ast.inner.len() == 5 {Some(Box::new(Self::build(ast.inner[4].clone())))} else {None})
+		let typ = Self::build(ast.inner[3].clone());
+		IR::DeclareFunction(decl, name, Box::new(typ), Self::build_args(ast.inner[2].clone()).unwrap(), if ast.inner.len() == 5 {Some(Box::new(Self::build(ast.inner[4].clone())))} else {None})
 	    },
 	    Rule::variable => {
 		let IR::Declaration(decl) = Self::build(ast.inner[0].clone()) else {panic!()};

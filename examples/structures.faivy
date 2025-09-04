@@ -1,0 +1,14 @@
+#import "Basics.faivy";
+
+Vector2 :: struct {
+    x: i32;
+    y: i32;
+}
+
+global :: main :: () -> i32 {
+    local :: player :: Ptr(Vector2) = cast(alloc_stack(SizeOf(Vector2)), Ptr(Vector2));
+    poke(player->x, cast(69, i32));
+    poke(player->y, cast(42, i32));
+
+    print_usize(cast(peek(player->x)+peek(player->y), usize));
+}

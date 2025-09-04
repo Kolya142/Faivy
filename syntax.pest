@@ -21,7 +21,7 @@ block			= { "{" ~ stmt* ~ "}" }
 
 variable		= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ expr ~ ( "=" ~ expr )? ~ ";" }
 set			= { expr ~ ":=" ~ expr }
-func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ expr ~ "->" ~ "(" ~ args ~ ")" ~ ( block | ";" ) }
+func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ "(" ~ args ~ ")" ~ "->" ~ expr ~ ( block | ";" ) }
 field			= { identifier ~ ":" ~ expr }
 struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
 import			= { "#import" ~ string ~ ";" }
@@ -39,6 +39,6 @@ primary			= { number | char_lit | string | identifier | "(" ~ expr ~ ")" }
 binop_op		= @{ ">=" | "<=" | ">" | "<" | "==" | "!=" | ">>" | "<<" | "+" | "->" | "-" | "/" | "*" | "%" | "&" | "^" | "|" }
 unaryop_op		= @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
 identifier		= @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
-number			= @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? | "." ~ ASCII_DIGIT+ }
+number			= @{ ( "0x" ~ ( ASCII_DIGIT | "A" | "B" | "C" | "D" | "E" | "F" | "a" | "b" | "c" | "d" | "e" | "f" )+ | ( ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? )) }
 string			= @{ "\"" ~ ( !("\"") ~ ANY )* ~ "\"" }
 char_lit		= @{ "'" ~ ( !("'" ) ~ ANY ) ~ "'" }

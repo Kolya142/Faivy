@@ -1,0 +1,5 @@
+extern fopen :: open_file ::    (name: usize, flags: usize)                              -> usize;
+extern fread :: read_file ::    (buf: usize, elem_size: usize, count: usize, fp: usize)  -> usize;
+extern fwrite :: write_file ::  (buf: usize, elem_size: usize, count: usize, fp: usize)  -> usize;
+extern fclose :: close_file ::  (fp: usize)						    -> void;
+extern unlink :: delete_file :: (name: usize)					    -> i32;
