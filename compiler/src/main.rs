@@ -50,7 +50,7 @@ enum UnaryOpKind {
 }
 
 #[derive(Debug,Clone,PartialEq)]
-enum IR {
+enum IRData {
     Dummy,
     Str(String),
     ID(String),
@@ -69,8 +69,30 @@ enum IR {
     Import(String),
     Asm(String),
     LLVM(String),
+    Defer(Box<IR>),
     If(Box<IR>, Box<IR>, Option<Box<IR>>),
     While(Box<IR>, Box<IR>),
+}
+
+#[derive(Debug,Clone)]
+pub struct IR {
+    pub data: IRData,
+    pub row: Option<usize>,
+    pub col: Option<usize>,
+}
+
+impl PartialEq for IR {
+    fn eq(&self, other: &IR) -> bool {
+	return self.data == other.data;
+    }
+}
+
+impl IR {
+    fn new(data: IRData, row: Option<usize>, col: Option<usize>) -> IR {
+	IR {
+	    data: data, row: row, col: col
+	}
+    }
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -83,7 +105,7 @@ struct CodeGenVariable {
 struct CodeGenFakeableVariable {
     real_name: String,
     name: String,
-    value: Option<String>,
+    value: Option<IR>,
     typ: Option<IR>,
 }
 
@@ -110,13 +132,16 @@ struct CodeGenState {
     expected_typ: Option<IR>
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq)]
 struct CodeGen {
     output: String,
     data_output: String,
     end_of_block: bool,
     functions: Vec<CodeGenFunction>,
     // global_variables: Vec<CodeGenFakeableVariable>,
+    defer_block: Vec<IR>,
+    imported: Vec<String>,
+    current_file: Option<String>,
     local_variables: Vec<CodeGenFakeableVariable>,
     structs: Vec<CodeGenStruct>,
     strings: HashMap<String, String>,
@@ -124,14 +149,17 @@ struct CodeGen {
 }
 
 impl CodeGen {
-    fn new() -> Self {
+    fn new(filename: Option<String>) -> Self {
 	Self {
 	    output: String::new(),
 	    data_output: String::new(),
 	    end_of_block: false,
 	    functions: vec![],
 	    // global_variables: vec![],
+	    defer_block: vec![],
 	    strings: HashMap::new(),
+	    imported: vec![],
+	    current_file: filename,
 	    local_variables: vec![],
 	    structs: vec![],
 	    oid: 0,
@@ -162,57 +190,58 @@ impl CodeGen {
 	}
     }
     fn get_backend_type(&self, symname: IR) -> String {
-	if let IR::Call(ref name, _) = symname {
+	if let IRData::Call(ref name, _) = symname.data {
 	    if *name == "Ptr".to_string() {
 		return "i64".to_string();
 	    }
 	}
- 	else if symname == IR::ID("bool".to_string()) {
+ 	else if symname.data == IRData::ID("bool".to_string()) {
 	    return "i1".to_string();
 	}
- 	else if symname == IR::ID("i32".to_string()) {
+ 	else if symname.data == IRData::ID("i32".to_string()) {
 	    return "i32".to_string();
 	}
-	else if symname == IR::ID("u32".to_string()) {
+	else if symname.data == IRData::ID("u32".to_string()) {
 	    return "i32".to_string();
 	}
-	else if symname == IR::ID("i64".to_string()) {
+	else if symname.data == IRData::ID("i64".to_string()) {
 	    return "i64".to_string();
 	}
-	else if symname == IR::ID("f32".to_string()) {
+	else if symname.data == IRData::ID("f32".to_string()) {
 	    return "float".to_string();
 	}
-	else if symname == IR::ID("u64".to_string()) {
+	else if symname.data == IRData::ID("u64".to_string()) {
 	    return "i64".to_string();
 	}
-	else if symname == IR::ID("isize".to_string()) {
+	else if symname.data == IRData::ID("isize".to_string()) {
 	    return "i64".to_string();
 	}
-	else if symname == IR::ID("usize".to_string()) {
+	else if symname.data == IRData::ID("usize".to_string()) {
 	    return "i64".to_string();
 	}
-	else if symname == IR::ID("i8".to_string()) {
+	else if symname.data == IRData::ID("i8".to_string()) {
 	    return "i8".to_string();
 	}
-	else if symname == IR::ID("u8".to_string()) {
+	else if symname.data == IRData::ID("u8".to_string()) {
 	    return "i8".to_string();
 	}
-	else if symname == IR::ID("void".to_string()) {
+	else if symname.data == IRData::ID("void".to_string()) {
 	    return "void".to_string();
 	}
-	else if symname == IR::ID("i16".to_string()) {
+	else if symname.data == IRData::ID("i16".to_string()) {
 	    return "i16".to_string();
 	}
-	else if symname == IR::ID("u16".to_string()) {
+	else if symname.data == IRData::ID("u16".to_string()) {
 	    return "i16".to_string();
 	}
 	for structure in &self.structs {
-	    if IR::ID(structure.name.clone()) == symname {
+	    if IRData::ID(structure.name.clone()) == symname.data {
 		return structure.real_name.clone();
 	    }
 	}
 	return "i64".to_string();
     }
+    /*
     fn const_interpret(ir: IR) -> IR {
 	if let IR::Float(_) = ir {
 	    return ir;
@@ -299,49 +328,153 @@ impl CodeGen {
 		}
 	    }
 	}
-	panic!("Failed to interpret {:?} staticly", ir);
+	panic!("Failed to interpret {:?} constantly", ir);
+    }
+     */
+    fn fmt_pos(&mut self, ir: &IR) -> String {
+	format!("`{}`({}:{})", self.current_file.clone().or(Some("<scratch>".to_string())).unwrap(), ir.row.or(Some(0)).unwrap(), ir.col.or(Some(0)).unwrap())
+    }
+    fn dyn_interpret(&mut self, state: &mut CodeGenState, ir: IR) -> IR {
+	if let IRData::Float(_) = ir.data {
+	    return ir;
+	}
+	if let IRData::Integer(_) = ir.data {
+	    return ir;
+	}
+	if let IRData::ID(ref id) = ir.data {
+	    for var in self.local_variables.clone() {
+		if var.name == *id {
+		    if let Some(ref value) = var.value {
+			state.typ = var.typ.clone();
+			return value.clone();
+		    }
+		    panic!("Failed to found constant `{}` at {} because it not a constant", id, self.fmt_pos(&ir));
+		}
+	    }
+	    panic!("Failed to found constant `{}` at {}", id, self.fmt_pos(&ir));
+	}
+	if let IRData::BinOp(ref op, ref elhs, ref erhs) = ir.data {
+	    let op = op.clone();
+	    let lhs = self.dyn_interpret(state, *elhs.clone()).data;
+	    let rhs = self.dyn_interpret(state, *erhs.clone()).data;
+	    if let IRData::Float(ref lhs) = lhs {
+		if let IRData::Float(ref rhs) = rhs {
+		    if op == BinOpKind::Add {
+			return IR::new(IRData::Float(lhs+rhs), None, None);
+		    }
+		    else if op == BinOpKind::Sub {
+			return IR::new(IRData::Float(lhs-rhs), None, None);
+		    }
+		    else if op == BinOpKind::Mul {
+			return IR::new(IRData::Float(lhs*rhs), None, None);
+		    }
+		    else if op == BinOpKind::Div {
+			return IR::new(IRData::Float(lhs/rhs), None, None);
+		    }
+		    else if op == BinOpKind::Mod {
+			return IR::new(IRData::Float(lhs%rhs), None, None);
+		    }
+		    else if op == BinOpKind::Eq {
+			return IR::new(IRData::Integer(if lhs==rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::NEq {
+			return IR::new(IRData::Integer(if lhs!=rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::Less {
+			return IR::new(IRData::Integer(if lhs<rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::Bigger {
+			return IR::new(IRData::Integer(if lhs>rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			return IR::new(IRData::Integer(if lhs<=rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			return IR::new(IRData::Integer(if lhs>=rhs {1} else {0}), None, None);
+		    }
+		}
+	    }
+	    if let IRData::Integer(ref lhs) = lhs {
+		if let IRData::Integer(ref rhs) = rhs {
+		    if op == BinOpKind::Add {
+			return IR::new(IRData::Integer(lhs+rhs), None, None);
+		    }
+		    else if op == BinOpKind::Sub {
+			return IR::new(IRData::Integer(lhs-rhs), None, None);
+		    }
+		    else if op == BinOpKind::Mul {
+			return IR::new(IRData::Integer(lhs*rhs), None, None);
+		    }
+		    else if op == BinOpKind::Div {
+			return IR::new(IRData::Integer(lhs/rhs), None, None);
+		    }
+		    else if op == BinOpKind::Mod {
+			return IR::new(IRData::Integer(lhs%rhs), None, None);
+		    }
+		    else if op == BinOpKind::Eq {
+			return IR::new(IRData::Integer(if lhs==rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::NEq {
+			return IR::new(IRData::Integer(if lhs!=rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::Less {
+			return IR::new(IRData::Integer(if lhs<rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::Bigger {
+			return IR::new(IRData::Integer(if lhs>rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::LessOrEq {
+			return IR::new(IRData::Integer(if lhs<=rhs {1} else {0}), None, None);
+		    }
+		    else if op == BinOpKind::BiggerOrEq {
+			return IR::new(IRData::Integer(if lhs>=rhs {1} else {0}), None, None);
+		    }
+		}
+	    }
+	}
+	panic!("Failed to interpret {:?} dynamicly at {}", ir, self.fmt_pos(&ir));
     }
     fn get_value(&mut self, state: &mut CodeGenState, ir: IR) -> String {
 	println!("; {:?}\n", ir);
 	self.output += &format!("; {:?}\n", ir);
 	let reg = format!("%{}", self.get_free_register());
-	if let IR::BinOp(op, elhs, erhs) = ir {
+	if let IRData::BinOp(ref op, ref elhs, ref erhs) = ir.data {
 	    
-	    if op == BinOpKind::Dot {
+	    if *op == BinOpKind::Dot {
 		let lhs = self.get_value(state, *elhs.clone());
 		let lt = state.typ.clone().unwrap();
 		let ptr_reg = self.get_free_register();
 		let temp_reg = self.get_free_register();
 
-		if let IR::Call(ref name, ref ltv) = lt {
+		if let IRData::Call(ref name, ref ltv) = lt.data {
 		    let lt = ltv[0].clone();
 		    if *name == "Ptr".to_string() {
 			for structure in &self.structs {
-			    if IR::ID(structure.name.clone()) == lt {
+			    if IRData::ID(structure.name.clone()) == lt.data {
 				let mut fieldi = 0;
 				while fieldi < structure.fields.len() {
-				    if IR::ID(structure.fields[fieldi].name.clone()) == *erhs {
+				    if IRData::ID(structure.fields[fieldi].name.clone()) == (*erhs).data {
 					break;
 				    }
 				    fieldi += 1;
 				}
 				if fieldi == structure.fields.len() {
-				    panic!("Failed to find element {:?} of structure {:?}", erhs, lt);
+				    panic!("Failed to find element {:?} of structure {:?} at {}", erhs, lt, self.fmt_pos(&ir));
 				}
 				self.output += &format!("    %{} = inttoptr i64 {} to ptr\n", ptr_reg, lhs);
 				self.output += &format!("    %{} = getelementptr inbounds {}, ptr %{}, i32 0, i32 {}\n", temp_reg, self.get_backend_type(lt), ptr_reg, fieldi);
 				self.output += &format!("    {} = ptrtoint ptr %{} to i64\n", reg, temp_reg);
-				state.typ = Some(IR::Call("Ptr".to_string(), vec![structure.fields[fieldi].typ.clone().unwrap()]));
+				state.typ = Some(IR::new(IRData::Call("Ptr".to_string(), vec![structure.fields[fieldi].typ.clone().unwrap()]), None, None));
 
 				return reg;
 			    }
 			}
 
-			panic!("Failed to find structure {:?}", lt);
+			panic!("Failed to find structure {:?} at {}", lt, self.fmt_pos(&ir));
 		    }
 
 		    else {
-			panic!("{:?} - not a pointer to a structure", lt);
+			panic!("{:?} - not a pointer to a structure at {}", lt, self.fmt_pos(&ir));
 		    }
 		}
 	    }
@@ -351,195 +484,194 @@ impl CodeGen {
 		let lt = state.typ.clone();
 		let rhs = self.get_value(state, *erhs.clone());
 		let rt = state.typ.clone();
-		if lt != rt {
-		    panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?}", elhs, lt, erhs, rt);
+		if lt.clone().unwrap().data != rt.clone().unwrap().data {
+		    panic!("Failed to binop ({:?}){:?}\n and \n({:?}){:?} at {}", elhs, lt, erhs, rt, self.fmt_pos(&ir));
 		}
 		let lt = self.get_backend_type(lt.unwrap());
 		if lhs.chars().next().unwrap().is_digit(10) && rhs.chars().next().unwrap().is_digit(10) {
 		    if lt == "float".to_string() {
-			if op == BinOpKind::Add {
-			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)+Self::get_float_from_string(rhs)));
+			if *op == BinOpKind::Add {
+			    return self.get_value(state, IR::new(IRData::Float(Self::get_float_from_string(lhs)+Self::get_float_from_string(rhs)), None, None));
 			}
-			else if op == BinOpKind::Sub {
-			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)-Self::get_float_from_string(rhs)));
+			else if *op == BinOpKind::Sub {
+			    return self.get_value(state, IR::new(IRData::Float(Self::get_float_from_string(lhs)-Self::get_float_from_string(rhs)), None, None));
 			}
-			else if op == BinOpKind::Mul {
-			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)*Self::get_float_from_string(rhs)));
+			else if *op == BinOpKind::Mul {
+			    return self.get_value(state, IR::new(IRData::Float(Self::get_float_from_string(lhs)*Self::get_float_from_string(rhs)), None, None));
 			}
-			else if op == BinOpKind::Div {
-			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)/Self::get_float_from_string(rhs)));
+			else if *op == BinOpKind::Div {
+			    return self.get_value(state, IR::new(IRData::Float(Self::get_float_from_string(lhs)/Self::get_float_from_string(rhs)), None, None));
 			}
-			else if op == BinOpKind::Mod {
-			    return self.get_value(state, IR::Float(Self::get_float_from_string(lhs)%Self::get_float_from_string(rhs)));
+			else if *op == BinOpKind::Mod {
+			    return self.get_value(state, IR::new(IRData::Float(Self::get_float_from_string(lhs)%Self::get_float_from_string(rhs)), None, None));
 			}
-			else if op == BinOpKind::Eq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Eq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)==Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::NEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::NEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)!=Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::Less {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Less {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)<Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::Bigger {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Bigger {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)>Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::LessOrEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::LessOrEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)<=Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::BiggerOrEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::BiggerOrEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_float_from_string(lhs)>=Self::get_float_from_string(rhs) {1} else {0}).to_string();
 			}
 		    }
 		    else {
-			if op == BinOpKind::Add {
+			if *op == BinOpKind::Add {
 			    return (Self::get_int_from_string(lhs)+Self::get_int_from_string(rhs)).to_string();
 			}
-			else if op == BinOpKind::Sub {
+			else if *op == BinOpKind::Sub {
 			    return (Self::get_int_from_string(lhs)-Self::get_int_from_string(rhs)).to_string();
 			}
-			else if op == BinOpKind::Mul {
+			else if *op == BinOpKind::Mul {
 			    return (Self::get_int_from_string(lhs)*Self::get_int_from_string(rhs)).to_string();
 			}
-			else if op == BinOpKind::Div {
+			else if *op == BinOpKind::Div {
 			    return (Self::get_int_from_string(lhs)/Self::get_int_from_string(rhs)).to_string();
 			}
-			else if op == BinOpKind::Mod {
+			else if *op == BinOpKind::Mod {
 			    return (Self::get_int_from_string(lhs)%Self::get_int_from_string(rhs)).to_string();
 			}
-			else if op == BinOpKind::Eq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Eq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)==Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::NEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::NEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)!=Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::Less {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Less {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)<Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::Bigger {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::Bigger {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)>Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::LessOrEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::LessOrEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)<=Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
-			else if op == BinOpKind::BiggerOrEq {
-			    state.typ = Some(IR::ID("bool".to_string()));
+			else if *op == BinOpKind::BiggerOrEq {
+			    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 			    return (if Self::get_int_from_string(lhs)>=Self::get_int_from_string(rhs) {1} else {0}).to_string();
 			}
 		    }
 		}
 		if lt == "float".to_string() {
-		    if op == BinOpKind::Add {
+		    if *op == BinOpKind::Add {
 			self.output += &format!("    {} = fadd {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Sub {
+		    else if *op == BinOpKind::Sub {
 			self.output += &format!("    {} = fsub {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Mul {
+		    else if *op == BinOpKind::Mul {
 			self.output += &format!("    {} = fmul {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Div {
+		    else if *op == BinOpKind::Div {
 			self.output += &format!("    {} = fdiv {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Mod {
+		    else if *op == BinOpKind::Mod {
 			self.output += &format!("    {} = frem {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Eq {
+		    else if *op == BinOpKind::Eq {
 			self.output += &format!("    {} = fcmp oeq {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::NEq {
+		    else if *op == BinOpKind::NEq {
 			self.output += &format!("    {} = fcmp one {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::Less {
+		    else if *op == BinOpKind::Less {
 			self.output += &format!("    {} = fcmp olt {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::Bigger {
+		    else if *op == BinOpKind::Bigger {
 			self.output += &format!("    {} = fcmp ogt {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::LessOrEq {
+		    else if *op == BinOpKind::LessOrEq {
 			self.output += &format!("    {} = fcmp ole {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::BiggerOrEq {
+		    else if *op == BinOpKind::BiggerOrEq {
 			self.output += &format!("    {} = fcmp oge {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
 		}
 		else {
-		    if op == BinOpKind::Add {
+		    if *op == BinOpKind::Add {
 			self.output += &format!("    {} = add {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Sub {
+		    else if *op == BinOpKind::Sub {
 			self.output += &format!("    {} = sub {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Mul {
+		    else if *op == BinOpKind::Mul {
 			self.output += &format!("    {} = mul {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Div {
+		    else if *op == BinOpKind::Div {
 			self.output += &format!("    {} = udiv {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Mod {
+		    else if *op == BinOpKind::Mod {
 			self.output += &format!("    {} = urem {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::LShft {
+		    else if *op == BinOpKind::LShft {
 			self.output += &format!("    {} = shl {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::RShft {
+		    else if *op == BinOpKind::RShft {
 			self.output += &format!("    {} = lshr {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::And {
+		    else if *op == BinOpKind::And {
 			self.output += &format!("    {} = and {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Or {
+		    else if *op == BinOpKind::Or {
 			self.output += &format!("    {} = or {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Xor {
+		    else if *op == BinOpKind::Xor {
 			self.output += &format!("    {} = xor {} {}, {}\n", reg, lt, lhs, rhs);
 		    }
-		    else if op == BinOpKind::Eq {
+		    else if *op == BinOpKind::Eq {
 			self.output += &format!("    {} = icmp eq {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::NEq {
+		    else if *op == BinOpKind::NEq {
 			self.output += &format!("    {} = icmp ne {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::Less {
+		    else if *op == BinOpKind::Less {
 			self.output += &format!("    {} = icmp ult {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::Bigger {
+		    else if *op == BinOpKind::Bigger {
 			self.output += &format!("    {} = icmp ugt {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::LessOrEq {
+		    else if *op == BinOpKind::LessOrEq {
 			self.output += &format!("    {} = icmp ule {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
-		    else if op == BinOpKind::BiggerOrEq {
+		    else if *op == BinOpKind::BiggerOrEq {
 			self.output += &format!("    {} = icmp uge {} {}, {}\n", reg, lt, lhs, rhs);
-			state.typ = Some(IR::ID("bool".to_string()));
+			state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		    }
 		}
 	    }
 	}
-	else if let IR::UnaryOp(op, evl) = ir {
-	    // let res: Vec<u8> = vec![];
+	else if let IRData::UnaryOp(op, evl) = ir.data {
 	    let vl = self.get_value(state, *evl.clone());
 	    let vlt = self.get_backend_type(state.typ.clone().unwrap());
 	    if vlt == "float".to_string() {
@@ -554,7 +686,7 @@ impl CodeGen {
 		}
 		else if op == UnaryOpKind::LNot {
 		    self.output += &format!("    {} = fcmp oeq {} 0x{:016X}, {}\n", reg, vlt, 0.0_f64.to_bits(), vl);
-		    state.typ = Some(IR::ID("bool".to_string()));
+		    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		}
 	    }
 	    else {
@@ -569,38 +701,39 @@ impl CodeGen {
 		}
 		else if op == UnaryOpKind::LNot {
 		    self.output += &format!("    {} = icmp eq {} 0, {}\n", reg, vlt, vl);
-		    state.typ = Some(IR::ID("bool".to_string()));
+		    state.typ = Some(IR::new(IRData::ID("bool".to_string()), None, None));
 		}
 	    }
 	}
-	else if let IR::ID(ref id) = ir {
+	else if let IRData::ID(ref id) = ir.data {
 	    for var in self.local_variables.clone() {
 		if var.name == *id {
 		    if let Some(ref value) = var.value {
+			let result = self.get_value(state, value.clone());
 			state.typ = var.typ.clone();
-			return value.clone();
+			return result;
 		    }
 		    self.output += &format!("    {} = load {}, ptr {}\n", reg, self.get_backend_type(var.typ.clone().unwrap()), var.real_name);
 		    state.typ = var.typ.clone();
 		    return reg;
 		}
 	    }
-	    panic!("Failed to found variable `{}`", id);
+	    panic!("Failed to found variable `{}` at {}", id, self.fmt_pos(&ir));
 	}
-	else if let IR::Integer(ref int) = ir {
-	    state.typ = Some(IR::ID("usize".to_string()));
+	else if let IRData::Integer(ref int) = ir.data {
+	    state.typ = Some(IR::new(IRData::ID("usize".to_string()), None, None));
 	    return format!("{}", int);
 	}
-	else if let IR::Float(ref int) = ir {
-	    state.typ = Some(IR::ID("f32".to_string()));
+	else if let IRData::Float(ref int) = ir.data {
+	    state.typ = Some(IR::new(IRData::ID("f32".to_string()), None, None));
 	    return format!("0x{:016X}", (int.clone() as f64).to_bits());
 	}
-	else if let IR::Str(ref id) = ir {
+	else if let IRData::Str(ref id) = ir.data {
 	    if let Some(str_reg) = self.strings.clone().get(id) {
 		let temp_reg = format!("%{}", self.get_free_register());
 		self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
 		self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
-		state.typ = Some(IR::ID("usize".to_string()));
+		state.typ = Some(IR::new(IRData::ID("usize".to_string()), None, None));
 	    }
 	    else {
 		let temp_reg = format!("%{}", self.get_free_register());
@@ -608,25 +741,26 @@ impl CodeGen {
 		self.data_output += &format!("{} = private constant [{} x i8] c\"{}\\00\", align 1\n", str_reg, id.len()+1, id);
 		self.output += &format!("    {} = getelementptr i64, ptr {}\n", temp_reg, str_reg);
 		self.output += &format!("    {} = ptrtoint ptr {} to i64\n", reg, temp_reg);
-		state.typ = Some(IR::ID("usize".to_string()));
+		state.typ = Some(IR::new(IRData::ID("usize".to_string()), None, None));
 		self.strings.insert(id.to_string(), str_reg);
 	    }
 	}
-	else if let IR::Call(ref name, ref args) = ir {
+	else if let IRData::Call(ref name, ref args) = ir.data {
 	    if *name == "return".to_string() {
 		let res = self.get_value(state, args[0].clone());
 		self.output += &format!("    ret {} {}\n", self.get_backend_type(state.expected_typ.clone().unwrap()), res);
 		self.end_of_block = true;
 		return reg;
 	    }
-	    if *name == "FaivycEvalute".to_string() {
-		return self.get_value(state, Self::const_interpret(args[0].clone()));
+	    if *name == "CompTimeEvalute".to_string() {
+		let modified_ir = self.dyn_interpret(state, args[0].clone());
+		return self.get_value(state, modified_ir);
 	    }
 	    if *name == "SizeOf".to_string() {
 		let temp = self.get_free_register();
 		self.output += &format!("     %{} = getelementptr {}, ptr null, i32 1\n", temp, self.get_backend_type(args[0].clone()));
 		self.output += &format!("     {} = ptrtoint ptr %{} to i64\n", reg, temp);
-		state.typ = Some(IR::ID("usize".to_string()));
+		state.typ = Some(IR::new(IRData::ID("usize".to_string()), None, None));
 		return reg;
 	    }
 	    if *name == "return_void".to_string() {
@@ -641,7 +775,7 @@ impl CodeGen {
 
 		self.output += &format!("    %{} = alloca i8, i64 {}, align 16\n", tmp, res);
 		self.output += &format!("    {} = ptrtoint ptr %{} to i64\n", reg, tmp);
-		state.typ = Some(IR::ID("usize".to_string()));
+		state.typ = Some(IR::new(IRData::ID("usize".to_string()), None, None));
 		return reg;
 	    }
 	    if *name == "cast".to_string() {
@@ -667,7 +801,7 @@ impl CodeGen {
 		
 		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, self.get_backend_type(state.typ.clone().unwrap()), int_addr);
 		
-		if let Some(IR::Call(wrapper, args)) = &state.typ {
+		if let IRData::Call(wrapper, args) = state.typ.clone().unwrap().data {
 		    if *wrapper != "Ptr".to_string() {
 			panic!("Tried to peek from not a pointer {:?}", args[0].clone());
 		    }
@@ -692,17 +826,17 @@ impl CodeGen {
 		
 		self.output += &format!("    {} = inttoptr {} {} to ptr\n", addr, self.get_backend_type(addr_typ.clone().unwrap()), int_addr);
 		
-		if let Some(IR::Call(wrapper, args)) = addr_typ.clone() {
+		if let IRData::Call(wrapper, args) = addr_typ.clone().unwrap().data {
 		    if *wrapper != "Ptr".to_string() {
 			panic!("Tried to poke to not a pointer {:?}({:?})", oargs[0].clone(), addr_typ);
 		    }
-		    if args[0].clone() != value_typ.clone().unwrap() {
+		    if args[0].clone().data != value_typ.clone().unwrap().data {
 			panic!("Tried to poke a value {:?} that doesn't compatiable with the pointer {:?}({:?})", oargs[1].clone(), oargs[0].clone(), addr_typ);
 		    }
 		    let elem_type = self.get_backend_type(value_typ.unwrap());
 		    
 		    self.output += &format!("    store {} {}, ptr {}\n", elem_type, value, addr);
-		    state.typ = Some(IR::ID("i32".to_string()));
+		    state.typ = Some(IR::new(IRData::ID("i32".to_string()), None, None));
 		}
 		else {
 		    panic!("Tried to poke to not a pointer {:?}({:?})", oargs[0].clone(), addr_typ);
@@ -717,7 +851,7 @@ impl CodeGen {
 		    let mut arg_regs = vec![];
 		    for arg in 0..func.args.len() {
 			let areg = self.get_value(state, args[arg].clone());
-			if state.typ.clone() != Some(func.args[arg].typ.clone().unwrap()) {
+			if state.typ.clone().unwrap().data != func.args[arg].typ.clone().unwrap().data {
 			    panic!("Excepted type {:?} at call {} but got type {:?}", func.args[arg].typ.clone().unwrap(), *name, state.typ.clone().unwrap());
 			}
 			arg_regs.push(format!("{} {}", self.get_backend_type(func.args[arg].typ.clone().unwrap()), areg));
@@ -728,19 +862,19 @@ impl CodeGen {
 		    }
 		    else {
 			self.output += &format!("    call ccc void @{}({})\n", func.real_name, arg_regs.join(", "));
-			state.typ = Some(IR::ID("i32".to_string()));
+			state.typ = Some(IR::new(IRData::ID("i32".to_string()), None, None));
 		    }
 		    return reg;
 		}
 	    }
-	    panic!("Failed to found function/structure `{}`", name);
+	    panic!("Failed to found function/structure `{}` at {}", name, self.fmt_pos(&ir));
 	}
 	reg
     }
     fn codegen(&mut self, state: &CodeGenState, ir: IR) -> CodeGenState {
 	println!("; {:?}\n", ir);
 	let mut state = state.clone();
-	if let IR::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir {
+	if let IRData::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir.data {
 	    let variables = self.local_variables.clone();
 	    if *dt == DeclarationType::Global {
 		state.expected_typ = Some(*typ.clone());
@@ -817,25 +951,25 @@ impl CodeGen {
 	    self.local_variables = variables;
 	}
 	/*
-	else if let IR::DeclareStructure(ref name, ref block) = ir {
+	else if let IRData::DeclareStructure(ref name, ref block) = ir {
 	}
-	else if let IR::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
+	else if let IRData::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
 	    if *dt == DeclarationType::Global {
-		if let IR::ID(ref typ) = **typ {
+		if let IRData::ID(ref typ) = **typ {
 		}
 	    }
 	    else if *dt == DeclarationType::Local {
-		if let IR::ID(ref typ) = **typ {
+		if let IRData::ID(ref typ) = **typ {
 		}
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
-		if let IR::ID(ref typ) = **typ {
+		if let IRData::ID(ref typ) = **typ {
 		}
 	    }
     }
 	 */
 	
-	else if let IR::Import(ref module) = ir {
+	else if let IRData::Import(ref module) = ir.data {
 	    let filename;
 	    if module.starts_with("./") {
 		filename = module.clone();
@@ -843,20 +977,29 @@ impl CodeGen {
 	    else {
 		filename = format!("/opt/Faivy/modules/{}", module);
 	    }
-	    let ast = FaivyParser::pretty_parse(
-		FaivyParser::parse(Rule::program, &fs::read_to_string(&filename).unwrap()
-		).unwrap()
-	    );
-	    let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-	    self.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
+	    let mut already_imported = false;
+	    for imported in &self.imported {
+		if *imported == filename {
+		    already_imported = true;
+		}
+	    }
+	    if !already_imported {
+		self.imported.push(filename.clone());
+		let ast = FaivyParser::pretty_parse(
+		    FaivyParser::parse(Rule::program, &fs::read_to_string(&filename).unwrap()
+		    ).unwrap()
+		);
+		let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
+		self.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::new(IRData::Block(ir), None, None));
+	    }
 	}
-	else if let IR::Asm(_) = ir {
+	else if let IRData::Asm(_) = ir.data {
 	    todo!()
 	}
-	else if let IR::LLVM(ref code) = ir {
+	else if let IRData::LLVM(ref code) = ir.data {
 	    self.output += &format!("{}\n", code);
 	}
-	else if let IR::If(ref cond, ref then, ref otherwise) = ir {
+	else if let IRData::If(ref cond, ref then, ref otherwise) = ir.data {
 	    let variables = self.local_variables.clone();
 	    let rcond = self.get_value(&mut state, *cond.clone());
 	    let rthen = self.get_free_register();
@@ -876,7 +1019,10 @@ impl CodeGen {
 	    self.output += &format!("{}:\n", rend);
 	    self.local_variables = variables;
 	}
-	else if let IR::While(ref cond, ref body) = ir {
+	else if let IRData::Defer(ref body) = ir.data {
+	    self.defer_block = [vec![*body.clone()], self.defer_block.clone()].concat();
+	}
+	else if let IRData::While(ref cond, ref body) = ir.data {
 	    let variables = self.local_variables.clone();
 	    let rbody = self.get_free_register();
 	    let rreal_body = self.get_free_register();
@@ -899,17 +1045,17 @@ impl CodeGen {
 	    self.output += &format!("    call void @llvm.stackrestore(ptr %{})\n", sp);
 	    self.local_variables = variables;
 	}
-	else if let IR::DeclareStructure(ref name, ref fields) = ir {
+	else if let IRData::DeclareStructure(ref name, ref fields) = ir.data {
 	    let sid = format!("%{}", self.get_free_register());
 	    self.output += &format!("{} = type {{{}}}\n", sid, fields.into_iter().map(|x| format!("{}", self.get_backend_type(x.typ.clone().unwrap()))).collect::<Vec<_>>().join(", "));
 	    
 	    self.structs.push(CodeGenStruct{name: name.to_string(), real_name: sid, fields: fields.to_vec()});
 	}
-	else if let IR::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir {
+	else if let IRData::DeclareVariable(ref dt, ref name, ref typ, ref body) = ir.data {
 	    if *dt == DeclarationType::Local {
 		let value = self.get_value(&mut state, *body.clone().unwrap());
-		if state.typ.clone() != Some(*typ.clone()) {
-		    panic!("Excepted {:?} but got {:?}", Some(*typ.clone()), state.typ.clone());
+		if state.typ.clone().unwrap().data != (*typ.clone()).data {
+		    panic!("Excepted {:?} but got {:?}", (*typ.clone()).data, state.typ.clone().unwrap().data);
 		}
 		let var = self.get_free_register();
 		
@@ -919,24 +1065,25 @@ impl CodeGen {
 		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", var), value: None, typ: Some(*typ.clone())});
 	    }
 	    else if let DeclarationType::Extern(ref ename) = *dt {
-		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("%{}", ename), value: None, typ: Some(*typ.clone())});
+		self.output += &format!("@{} = external global {}", ename.clone(), self.get_backend_type(*typ.clone()));
+		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: format!("@{}", ename), value: None, typ: Some(*typ.clone())});
 	    }
 	    else if let DeclarationType::Const = *dt {
-		let rn = self.get_value/*TODO: get string without compiler*/(&mut state, Self::const_interpret(*body.clone().unwrap()));
+		let rn = self.dyn_interpret(&mut state, *body.clone().unwrap());
 		self.local_variables.push(CodeGenFakeableVariable{name: name.to_string(), real_name: name.to_string(), value: Some(rn), typ: Some(*typ.clone())});
 	    }
 	}
-	else if let IR::Set(ref name, ref body) = ir {
+	else if let IRData::Set(ref name, ref body) = ir.data {
 	    let value = self.get_value(&mut state, *body.clone());
 	    for var in self.local_variables.clone() {
-		if IR::ID(var.name) == **name {
+		if IRData::ID(var.name) == (**name).data {
 		    self.output += &format!("    store {} {}, ptr {}\n", self.get_backend_type(var.typ.clone().unwrap()), value, var.real_name);
 		    return state;
 		}
 	    }
-	    panic!("Failed to found variable `{:?}`", name);
+	    panic!("Failed to found variable `{:?}` at {}", name, self.fmt_pos(&ir));
 	}
-	else if let IR::Block(ref insts) = ir {
+	else if let IRData::Block(ref insts) = ir.data {
 	    for inst in insts {
 		if self.end_of_block {
 		    break;
@@ -944,7 +1091,9 @@ impl CodeGen {
 		self.codegen(&mut state, inst.clone());
 	    }
 	}
-	else if let IR::Scope(ref insts) = ir {
+	else if let IRData::Scope(ref insts) = ir.data {
+	    let dfb = self.defer_block.clone();
+	    self.defer_block = vec![];
 	    let variables = self.local_variables.clone();
 	    let sp = self.get_free_register();
 	    self.output += &format!("    %{} = call ptr @llvm.stacksave()\n", sp);
@@ -955,11 +1104,15 @@ impl CodeGen {
 		self.codegen(&mut state, inst.clone());
 	    }
 	    if !self.end_of_block {
+		for block in self.defer_block.clone() {
+		    self.codegen(&mut state, block.clone());
+		}
 		self.output += &format!("    call void @llvm.stackrestore(ptr %{})\n", sp);
 	    }
 	    self.local_variables = variables;
+	    self.defer_block = dfb;
 	}
-	else if ir == IR::Dummy {
+	else if ir.data == IRData::Dummy {
         }
 	else {
 	    if self.end_of_block {
@@ -976,15 +1129,24 @@ struct PrettyAst {
     rule: Rule,
     span: String,
     inner: Vec<PrettyAst>,
+    row: usize,
+    col: usize,
 }
 
 impl FaivyParser {
     fn pretty_parse(ast: Pairs<Rule>) -> Vec<PrettyAst> {
-	ast.map(|x| PrettyAst {
-	    rule: x.as_rule(),
-	    span: x.as_span().as_str().to_string(),
-	    inner: Self::pretty_parse(x.into_inner())
-	}).collect()
+	ast.map(|x|
+		{
+		    let (line, col) = x.line_col();
+		    PrettyAst {
+			rule: x.as_rule(),
+			span: x.as_span().as_str().to_string(),
+			row: line,
+			col: col,
+			inner: Self::pretty_parse(x.into_inner())
+		    }
+		}
+	).collect()
     }
 }
 
@@ -1036,45 +1198,45 @@ impl IRBuilder {
     
     fn build(ast: PrettyAst) -> IR {
 	match ast.rule {
-	    Rule::EOI => IR::Dummy,
-	    Rule::WHITESPACE => IR::Dummy,
-	    Rule::program => IR::Block(ast.inner.into_iter().map(Self::build).collect()),
-	    Rule::stmt => IR::Block(ast.inner.into_iter().map(Self::build).collect()),
-	    Rule::block => IR::Scope(ast.inner.into_iter().map(Self::build).collect()),
+	    Rule::EOI => IR::new(IRData::Dummy, Some(ast.row), Some(ast.col)),
+	    Rule::WHITESPACE => IR::new(IRData::Dummy, Some(ast.row), Some(ast.col)),
+	    Rule::program => IR::new(IRData::Block(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
+	    Rule::stmt => IR::new(IRData::Block(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
+	    Rule::block => IR::new(IRData::Scope(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
 	    Rule::decl_extern_type => {
-		IR::Declaration(DeclarationType::Extern(ast.inner[0].span.clone()))
+		IR::new(IRData::Declaration(DeclarationType::Extern(ast.inner[0].span.clone())), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::decl_global_type => {
-		IR::Declaration(DeclarationType::Global)
+		IR::new(IRData::Declaration(DeclarationType::Global), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::decl_local_type => {
-		IR::Declaration(DeclarationType::Local)
+		IR::new(IRData::Declaration(DeclarationType::Local), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::decl_forward_type => {
-		IR::Declaration(DeclarationType::Forward)
+		IR::new(IRData::Declaration(DeclarationType::Forward), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::decl_const_type => {
-		IR::Declaration(DeclarationType::Const)
+		IR::new(IRData::Declaration(DeclarationType::Const), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::decl_type => {
 		Self::build(ast.inner[0].clone())
 	    },
 	    Rule::identifier => {
-		IR::ID(ast.span.clone())
+		IR::new(IRData::ID(ast.span.clone()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::string => {
-		IR::Str(ast.span.clone()[1..ast.span.clone().len()-1].to_string())
+		IR::new(IRData::Str(ast.span.clone()[1..ast.span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::number => {
 		if ast.span.clone().contains(".") {
-		    IR::Float(ast.span.clone().parse::<f32>().unwrap())
+		    IR::new(IRData::Float(ast.span.clone().parse::<f32>().unwrap()), Some(ast.row), Some(ast.col))
 		}
 		else {
 		    if ast.span.clone().starts_with("0x") {
-			IR::Integer(u64::from_str_radix(&ast.span.clone()[2..], 16).unwrap())
+			IR::new(IRData::Integer(u64::from_str_radix(&ast.span.clone()[2..], 16).unwrap()), Some(ast.row), Some(ast.col))
 		    }
 		    else {
-			IR::Integer(ast.span.clone().parse::<u64>().unwrap())
+			IR::new(IRData::Integer(ast.span.clone().parse::<u64>().unwrap()), Some(ast.row), Some(ast.col))
 		    }
 		}
 	    },
@@ -1103,7 +1265,7 @@ impl IRBuilder {
 		    BinOpKind::Or } else if op == "^".to_string() {
 		    BinOpKind::Xor } else if op == "->".to_string() {
 		    BinOpKind::Dot } else {todo!()};
-		IR::BinOp(binopkind, Box::new(lhs), Box::new(rhs))
+		IR::new(IRData::BinOp(binopkind, Box::new(lhs), Box::new(rhs)), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::unaryop => {
 		let op = ast.inner[0].span.clone();
@@ -1113,7 +1275,7 @@ impl IRBuilder {
 		    UnaryOpKind::Minus } else if op == "~".to_string() {
 		    UnaryOpKind::Not } else if op == "!".to_string() {
 		    UnaryOpKind::LNot } else {todo!()};
-		IR::UnaryOp(unopkind, Box::new(vl))
+		IR::new(IRData::UnaryOp(unopkind, Box::new(vl)), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::expr_atom => {
 		Self::build(ast.inner[0].clone())
@@ -1121,46 +1283,49 @@ impl IRBuilder {
 	    Rule::expr => {
 		Self::build(ast.inner[0].clone())
 	    },
+	    Rule::defer => {
+		IR::new(IRData::Defer(Box::new(Self::build(ast.inner[0].clone()))), Some(ast.row), Some(ast.col))
+	    },
 	    Rule::import => {
-		IR::Import(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
+		IR::new(IRData::Import(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::asm => {
-		IR::Asm(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
+		IR::new(IRData::Asm(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::llvm => {
-		IR::LLVM(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string())
+		IR::new(IRData::LLVM(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::call => {
-		IR::Call(ast.inner[0].span.clone(), Self::build_expr_args(ast.inner[1].clone()).unwrap())
+		IR::new(IRData::Call(ast.inner[0].span.clone(), Self::build_expr_args(ast.inner[1].clone()).unwrap()), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::if_stmt => {
-		IR::If(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())), if ast.inner.len() == 3 {Some(Box::new(Self::build(ast.inner[2].clone())))} else {None})
+		IR::new(IRData::If(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())), if ast.inner.len() == 3 {Some(Box::new(Self::build(ast.inner[2].clone())))} else {None}), Some(ast.row), Some(ast.col))
 	    }
 	    Rule::while_stmt => {
-		IR::While(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())))
+		IR::new(IRData::While(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone()))), Some(ast.row), Some(ast.col))
 	    }
 	    Rule::func => {
-		let IR::Declaration(decl) = Self::build(ast.inner[0].clone()) else {panic!()};
-		let IR::ID(name) = Self::build(ast.inner[1].clone()) else {panic!()};
+		let IRData::Declaration(decl) = Self::build(ast.inner[0].clone()).data else {panic!()};
+		let IRData::ID(name) = Self::build(ast.inner[1].clone()).data else {panic!()};
 		let typ = Self::build(ast.inner[3].clone());
-		IR::DeclareFunction(decl, name, Box::new(typ), Self::build_args(ast.inner[2].clone()).unwrap(), if ast.inner.len() == 5 {Some(Box::new(Self::build(ast.inner[4].clone())))} else {None})
+		IR::new(IRData::DeclareFunction(decl, name, Box::new(typ), Self::build_args(ast.inner[2].clone()).unwrap(), if ast.inner.len() == 5 {Some(Box::new(Self::build(ast.inner[4].clone())))} else {None}), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::variable => {
-		let IR::Declaration(decl) = Self::build(ast.inner[0].clone()) else {panic!()};
-		let IR::ID(name) = Self::build(ast.inner[1].clone()) else {panic!()};
+		let IRData::Declaration(decl) = Self::build(ast.inner[0].clone()).data else {panic!()};
+		let IRData::ID(name) = Self::build(ast.inner[1].clone()).data else {panic!()};
 		let typ = Self::build(ast.inner[2].clone());
-		IR::DeclareVariable(decl, name, Box::new(typ), if ast.inner.len() == 4 {Some(Box::new(Self::build(ast.inner[3].clone())))} else {None})
+		IR::new(IRData::DeclareVariable(decl, name, Box::new(typ), if ast.inner.len() == 4 {Some(Box::new(Self::build(ast.inner[3].clone())))} else {None}), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::set => {
 		let dest = Self::build(ast.inner[0].clone());
 		let value = Self::build(ast.inner[1].clone());
-		IR::Set(Box::new(dest), Box::new(value))
+		IR::new(IRData::Set(Box::new(dest), Box::new(value)), Some(ast.row), Some(ast.col))
 	    },
 	    Rule::struct_decl => {
-		let IR::ID(name) = Self::build(ast.inner[0].clone()) else {panic!()};
-		IR::DeclareStructure(name, Self::build_args(PrettyAst{rule: Rule::args, span: String::new(), inner: ast.inner[1..].to_vec()}).unwrap())
+		let IRData::ID(name) = Self::build(ast.inner[0].clone()).data else {panic!()};
+		IR::new(IRData::DeclareStructure(name, Self::build_args(PrettyAst{rule: Rule::args, span: String::new(), inner: ast.inner[1..].to_vec(), row: ast.row, col: ast.col}).unwrap()), Some(ast.row), Some(ast.col))
 	    },
-	    _ => IR::Dummy,
+	    _ => IR::new(IRData::Dummy, None, None),
 	    
 	}
     }
@@ -1177,8 +1342,8 @@ fn main() {
 	).unwrap()
     );
     let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-    let mut codegen = CodeGen::new();
-    codegen.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::Block(ir));
+    let mut codegen = CodeGen::new(Some(argv[1].clone()));
+    codegen.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::new(IRData::Block(ir), None, None));
     let mut code = String::new();
     code += "declare ptr @llvm.stacksave()";
     code += "declare void @llvm.stackrestore(ptr)";
@@ -1211,7 +1376,7 @@ mod tests {
 	);
 	let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
 	let mut codegen = CodeGen::new();
-	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IRData::Block(ir));
 	let mut code = String::new();
 	code += &format!("{}", codegen.output);
 	let mut rng = rand::thread_rng();
@@ -1235,7 +1400,7 @@ mod tests {
 	);
 	let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
 	let mut codegen = CodeGen::new();
-	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IR::Block(ir));
+	codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IRData::Block(ir));
 	let mut code = String::new();
 	code += &format!("{}", codegen.output);
 	println!("{:?}", code);

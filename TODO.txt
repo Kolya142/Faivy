@@ -2,12 +2,20 @@
 [P] calling
 [P] type checking
 [ ] Generics
-[ ] Example
+[ ] Examples
 [ ] Open-Source release (after 2025-09-20)
 [x] while
 [ ] for
+[ ] enums
 [x] more serious target than C
 [x] #import
+[ ] smart #import
+[ ] #assert
+[ ] macros
 [ ] name spacing
 [P] stdlib
 [P] unary ops
+[P] better error/warning reporting
+[ ] better inline LLVM
+[ ] auto forward declaration
+[x] defer

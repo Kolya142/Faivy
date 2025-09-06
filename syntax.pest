@@ -3,7 +3,7 @@ COMMENT			= _{ "//" ~ (!"\n" ~ ANY)* ~ ("\n" | EOI)
                 | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
 program			=  { SOI ~ stmt* ~ EOI }
-stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | struct_decl | import | asm | llvm | block | ( call ~ ";" ) | (set ~ ";") }
+stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | defer | struct_decl | import | asm | llvm | block | ( call ~ ";" ) | (set ~ ";") }
 
 decl_extern_type	= { "extern" ~ identifier }
 decl_global_type	= { "global" }
@@ -28,6 +28,7 @@ struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
 import			= { "#import" ~ string ~ ";" }
 asm			= { "#asm" ~ string ~ ";" }
 llvm			= { "#llvm" ~ string ~ ";" }
+defer			= { "defer" ~ stmt }
 
 binop			= { ( call | primary ) ~ binop_op ~ expr }
 unaryop			= { unaryop_op ~ expr }

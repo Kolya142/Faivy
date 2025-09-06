@@ -16,6 +16,7 @@ extern sinf :: m_sin :: (rad: f32) -> f32;
 extern cosf :: m_cos :: (rad: f32) -> f32;
 extern tanf :: m_tan :: (rad: f32) -> f32;
 extern atanf :: m_atan :: (value: f32) -> f32;
+extern sqrtf :: m_sqrt :: (a: f32) -> f32;
 extern powf :: m_pow :: (num: f32, power: f32) -> f32;
 extern srand :: set_random_seed :: (seed: i32) -> void;
 extern rand :: get_random_i32 :: () -> i32;
@@ -29,6 +30,16 @@ forward :: print_str :: (data: usize) -> void;
 const :: M_PI :: f32 = 3.14159265359;
 const :: M_E :: f32 = 2.71828182846;
 
+extern stdin :: file_stdin :: usize;
+extern stdout :: file_stdout :: usize;
+extern stderr :: file_stderr :: usize;
+
+global :: m_abs :: (a: f32) -> f32 {
+    a < 0.0 :: if {
+	return(-a);
+    }
+    return(a);
+}
 
 global :: m_log :: (value: f32, base: f32) -> f32 {
     return(m_log10(value)/m_log10(base));
@@ -55,6 +66,7 @@ global :: get_unix_seconds :: () -> usize {
 global :: panic :: (msg: usize) -> void {
     print_str("Panic at TODO.faivy(TODO:TODO): ");
     print_str(msg);
+    print_char(cast(10, u8));
     exit(cast(1, i32));
 }
 
