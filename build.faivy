@@ -1,23 +1,11 @@
-#import "./modules/Basics.faivy";
-#import "./modules/Debug.faivy";
-
-extern getuid :: get_user_id :: () -> usize;
-
-global :: main :: (argc: i32, argv: Ptr(usize)) -> i32 {
-    get_user_id() != 0 :: if {
-	panic("You're not root. use sudo to eliminate the permissions");
-    }
+#run {
     print_str("Creating directories...");
     os_run("mkdir -p /opt/Faivy");
     os_run("mkdir -p /opt/Faivy/modules");
-    print_str("End");
-    print_char(cast(10, u8));
+    print_str("End\n");
     print_str("Copying files...");
     os_run("cp -r modules/* /opt/Faivy/modules");
     os_run("cp compiler/target/debug/compiler /opt/Faivy/faivyc");
-    print_str("End");
-    print_char(cast(10, u8));
-    print_str("Use /opt/Faivy/faivyc to build your project");
-    print_char(cast(10, u8));
-    return(0);
-}
+    print_str("End\n");
+    print_str("Use /opt/Faivy/faivyc to build your project\n");
+};

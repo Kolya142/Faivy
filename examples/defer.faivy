@@ -1,9 +1,8 @@
 #import "Basics.faivy";
 
 global :: main :: () -> i32 {
-    defer print_char(cast(10, u8));
-    defer print_str("1");
-    defer print_str("2");
-    defer print_str("3");
-    defer print_str("4");
+    defer print_str("1\n");
+    defer print_str("2\n");
+    defer print_str("3\n");
+    defer print_str("4\n");
 }

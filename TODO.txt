@@ -2,7 +2,7 @@
 [P] calling
 [P] type checking
 [ ] Generics
-[ ] Examples
+[P] Examples
 [ ] Open-Source release (after 2025-09-20)
 [x] while
 [ ] for

@@ -3,7 +3,7 @@ COMMENT			= _{ "//" ~ (!"\n" ~ ANY)* ~ ("\n" | EOI)
                 | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
 program			=  { SOI ~ stmt* ~ EOI }
-stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | defer | struct_decl | import | asm | llvm | block | ( call ~ ";" ) | (set ~ ";") }
+stmt			=  { if_stmt | for_stmt | while_stmt | variable | func | defer | struct_decl | import | asm | comptime_run | llvm | block | ( call ~ ";" ) | (set ~ ";") }
 
 decl_extern_type	= { "extern" ~ identifier }
 decl_global_type	= { "global" }
@@ -27,6 +27,7 @@ field			= { identifier ~ ":" ~ expr }
 struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
 import			= { "#import" ~ string ~ ";" }
 asm			= { "#asm" ~ string ~ ";" }
+comptime_run		= { "#run" ~ stmt ~ ";" }
 llvm			= { "#llvm" ~ string ~ ";" }
 defer			= { "defer" ~ stmt }
 
@@ -42,5 +43,5 @@ binop_op		= @{ ">=" | "<=" | ">" | "<" | "==" | "!=" | ">>" | "<<" | "+" | "->" 
 unaryop_op		= @{ "-&" | "+&" | "!" | "-" | "+" | "~" }
 identifier		= @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
 number			= @{ ( "0x" ~ ( ASCII_DIGIT | "A" | "B" | "C" | "D" | "E" | "F" | "a" | "b" | "c" | "d" | "e" | "f" )+ | ( ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? )) }
-string			= @{ "\"" ~ ( !("\"") ~ ANY )* ~ "\"" }
+string			= @{ "\"" ~ ( (!("\"") ~ ANY) | "\\\"" )* ~ "\"" }
 char_lit		= @{ "'" ~ ( !("'" ) ~ ANY ) ~ "'" }
