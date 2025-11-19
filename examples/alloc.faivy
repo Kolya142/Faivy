@@ -1,0 +1,12 @@
+#import "Basics.faivy";
+
+global main :: () -> i32 {
+    local arr :: Ptr(u8) = cast(Alloc(10), Ptr(u8));
+    poke(arr, cast(48, u8));
+    poke(arr+cast(1, Ptr(u8)), cast(49, u8));
+    poke(arr+cast(2, Ptr(u8)), cast(50, u8));
+    poke(arr+cast(3, Ptr(u8)), cast(10, u8));
+    poke(arr+cast(4, Ptr(u8)), cast(0, u8));
+    print_str(cast(arr, usize));
+    Free(cast(arr, usize));
+}

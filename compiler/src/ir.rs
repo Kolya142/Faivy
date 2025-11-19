@@ -73,14 +73,14 @@ pub struct IR {
 
 impl PartialEq for IR {
     fn eq(&self, other: &IR) -> bool {
-	return self.data == other.data;
+        return self.data == other.data;
     }
 }
 
 impl IR {
     pub fn new(data: IRData, row: Option<usize>, col: Option<usize>) -> IR {
-	IR {
-	    data: data, row: row, col: col
-	}
+        IR {
+            data: data, row: row, col: col
+        }
     }
 }

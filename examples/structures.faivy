@@ -5,10 +5,29 @@ Vector2 :: struct {
     y: i32;
 }
 
-global :: main :: () -> i32 {
-    local :: player :: Ptr(Vector2) = cast(alloc_stack(SizeOf(Vector2)), Ptr(Vector2));
-    poke(player->x, cast(69, i32));
-    poke(player->y, cast(42, i32));
+local stat_v2 :: (v2: Vector2) -> void {
+    print_str("Vector2 statistics:\n");
+    print_str("X: ");
+    print_usize(cast(peek(v2->x), usize));
+    print_str("\n");
+    print_str("Y: ");
+    print_usize(cast(peek(v2->y), usize));
+    print_str("\n");
+}
 
-    print_usize(cast(peek(player->x)+peek(player->y), usize));
+#run {
+    print_str("size of `Vector2` structure: ");
+    print_usize(SizeOf(Vector2));
+    print_str("bits\n");
+};
+
+global main :: () -> i32 {
+    local player :: Vector2 = IStruct(Vector2);
+    poke(player->x, cast(320, i32));
+    poke(player->y, cast(240, i32));
+    
+    print_usize(cast(peek(player->x), usize));
+    print_str("\n");
+
+    stat_v2(player);
 }

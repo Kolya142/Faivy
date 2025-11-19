@@ -1,7 +1,7 @@
-global :: assert :: (cond: bool, msg: usize) -> void {
-    !cond :: if {
-	panic(msg);
+global assert :: (cond: bool, msg: usize) -> void {
+    if !cond {
+        panic(msg);
     }
 }
 
-extern abort :: abort_debugger :: () -> void;
+extern abort abort_debugger :: () -> void;

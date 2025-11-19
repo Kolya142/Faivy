@@ -1,13 +1,13 @@
 #import "Basics.faivy";
 
-local :: minimal_value :: (a: PolyMorph(T), b: PolyMorph(T)) -> PolyMorph(T) {
-    a < b :: if {
+local minimal_value :: (a: PolyMorph(T), b: PolyMorph(T)) -> PolyMorph(T) {
+    if a < b {
 	return(a);
     }
     return(b);
 }
 
-global :: main :: () -> i32 {
+global main :: () -> i32 {
     print_str("minimal of 69 and 42 is ");
     print_usize(minimal_value(69, 42));
     print_char(cast(10, u8));

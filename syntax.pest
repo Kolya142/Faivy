@@ -15,14 +15,14 @@ decl_type		= { decl_extern_type | decl_global_type | decl_local_type | decl_forw
 args			= { ( field ~ ( "," ~ field )* )? }
 expr_args		= { ( expr ~ ( "," ~ expr )* )? }
 
-if_stmt			= { expr ~ "::" ~ "if" ~ block ~ ( "else" ~ stmt )? }
-for_stmt		= { "for" ~ "::" ~ expr ~ "," ~ expr ~ "," ~ expr ~ block }
-while_stmt		= { expr ~ "::" ~ "while" ~ block }
+if_stmt			= { "if" ~ expr ~ block ~ ( "else" ~ stmt )? }
+for_stmt		= { "for" ~ expr ~ "," ~ expr ~ "," ~ expr ~ block }
+while_stmt		= { "while" ~ expr ~ block }
 block			= { "{" ~ stmt* ~ "}" }
 
-variable		= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ expr ~ ( "=" ~ expr )? ~ ";" }
+variable		= { ( decl_type ) ~ identifier ~ "::" ~ expr ~ ( "=" ~ expr )? ~ ";" }
 set			= { expr ~ ":=" ~ expr }
-func			= { ( decl_type ~ "::" ) ~ identifier ~ "::" ~ "(" ~ args ~ ")" ~ "->" ~ expr ~ ( block | ";" ) }
+func			= { ( decl_type ) ~ identifier ~ "::" ~ "(" ~ args ~ ")" ~ "->" ~ expr ~ ( block | ";" ) }
 field			= { identifier ~ ":" ~ expr }
 struct_decl		= { identifier ~ "::" ~ "struct" ~ "{" ~ ( field ~ ";" )* ~ "}" }
 import			= { "#import" ~ string ~ ";" }
