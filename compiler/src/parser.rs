@@ -1,228 +1,163 @@
-use pest_derive::Parser;
-use pest::iterators::Pairs;
 use crate::{codegen::*, ir::*};
 
-#[derive(Parser)]
-#[grammar = "../syntax.pest"]
-pub struct FaivyParser;
+#[derive(Debug,Clone,PartialEq)]
+pub enum Token {
+    Id(String),
+    Str(String),
+    Nat(usize),
+    Float(f32),
+    
+    Comma,
+    Colon,
+    SemiColon,
+    Plus,
+    Minus,
+    Asterisk,
+    FrontSlash,
+    Eq,
+    EqEq,
+    PlusEq,
+    MinusEq,
+    AsteriskEq,
+    FrontSlashEq,
+    Less,
+    Greater,
+    LessLess,
+    GreaterGreater,
+    Bang,
+    BangEq,
+    Hash,
+    Ampersand,
+    AmpersandEq,
+    AmpersandAmpersand,
+    Pipe,
+    PipeEq,
+    PipePipe,
+    Carret,
+    CarretEq,
+    Dot
+}
 
 #[derive(Debug,Clone,PartialEq)]
-pub struct PrettyAst {
-    rule: Rule,
-    span: String,
-    inner: Vec<PrettyAst>,
+pub struct TokenMeta {
+    tok: Token,
     row: usize,
     col: usize,
 }
 
-impl FaivyParser {
-    pub fn pretty_parse(ast: Pairs<Rule>) -> Vec<PrettyAst> {
-        ast.map(|x|
-                {
-                    let (line, col) = x.line_col();
-                    PrettyAst {
-                        rule: x.as_rule(),
-                        span: x.as_span().as_str().to_string(),
-                        row: line,
-                        col: col,
-                        inner: Self::pretty_parse(x.into_inner())
+pub fn lexer(text: String) -> Vec<TokenMeta> {
+    let mut toks = vec![];
+    let mut i = 0usize;
+    let mut row = 1; // In Emacs first character at 1:0.
+    let mut col = 0;
+    let chars: Vec<char> = text.chars().collect();
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            ' ' | '\t' | '\r' => {
+                i += 1;
+                col += 1;
+            },
+            '\n' => {
+                i += 1;
+                row += 1;
+                col = 0;
+            },
+            'a' ..= 'z' | 'A' ..= 'Z' | '_' => {
+                let mut content = String::new();
+                while i < chars.len() {
+                    let c = chars[i];
+                    match c {
+                        'a' ..= 'z' | 'A' ..= 'Z' | '_' | '0' ..= '9' => {
+                            i += 1;
+                            col += 1;
+                            content.push(c);
+                        }
+                        _ => break
                     }
                 }
-        ).collect()
-    }
-}
-
-pub struct IRBuilder {
-}
-
-impl IRBuilder {
-    pub fn build_field(ast: PrettyAst) -> Option<CodeGenVariable> {
-        if ast.rule == Rule::field {
-            Some(
-                CodeGenVariable {
-                    name: ast.inner[0].span.clone(),
-                    typ: Some(Self::build(ast.inner[1].clone()))
+                toks.push(TokenMeta{tok: Token::Id(content), row: row, col: col});
+            },
+            '0' ..= '9' => {
+                let mut content = String::new();
+                let mut is_f = false;
+                while i < chars.len() {
+                    let c = chars[i];
+                    match c {
+                        '0' ..= '9' | '.' => {
+                            i += 1;
+                            col += 1;
+                            content.push(c);
+                        }
+                        'f' => {
+                            i += 1;
+                            col += 1;
+                            is_f = true;
+                            break;
+                        }
+                        _ => break
+                    }
                 }
-            )
-        }
-        else {
-            None
-        }
-    }
-    
-    pub fn build_args(ast: PrettyAst) -> Option<Vec<CodeGenVariable>> {
-        if ast.rule == Rule::args {
-            Some(
-                ast.inner.into_iter().map(
-                    |ast|
-                    Self::build_field(ast.clone()).unwrap()
-                ).collect()
-            )
-        }
-        else {
-            None
-        }
-    }
-    
-    pub fn build_expr_args(ast: PrettyAst) -> Option<Vec<IR>> {
-        if ast.rule == Rule::expr_args {
-            Some(
-                ast.inner.into_iter().map(
-                    |ast|
-                    Self::build(ast.clone())
-                ).collect()
-            )
-        }
-        else {
-            None
-        }
-    }
-    
-    pub fn build(ast: PrettyAst) -> IR {
-        match ast.rule {
-            Rule::EOI => IR::new(IRData::Dummy, Some(ast.row), Some(ast.col)),
-            Rule::WHITESPACE => IR::new(IRData::Dummy, Some(ast.row), Some(ast.col)),
-            Rule::program => IR::new(IRData::Block(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
-            Rule::stmt => IR::new(IRData::Block(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
-            Rule::block => IR::new(IRData::Scope(ast.inner.into_iter().map(Self::build).collect()), Some(ast.row), Some(ast.col)),
-            Rule::decl_extern_type => {
-                IR::new(IRData::Declaration(DeclarationType::Extern(ast.inner[0].span.clone())), Some(ast.row), Some(ast.col))
-            },
-            Rule::decl_global_type => {
-                IR::new(IRData::Declaration(DeclarationType::Global), Some(ast.row), Some(ast.col))
-            },
-            Rule::decl_local_type => {
-                IR::new(IRData::Declaration(DeclarationType::Local), Some(ast.row), Some(ast.col))
-            },
-            Rule::decl_forward_type => {
-                IR::new(IRData::Declaration(DeclarationType::Forward), Some(ast.row), Some(ast.col))
-            },
-            Rule::decl_const_type => {
-                IR::new(IRData::Declaration(DeclarationType::Const), Some(ast.row), Some(ast.col))
-            },
-            Rule::decl_type => {
-                Self::build(ast.inner[0].clone())
-            },
-            Rule::identifier => {
-                IR::new(IRData::ID(ast.span.clone()), Some(ast.row), Some(ast.col))
-            },
-            Rule::string => {
-                let mut parsed_str = ast.span.clone()[1..ast.span.clone().len()-1].to_string();
-                parsed_str = parsed_str.replace("\\n", "\n");
-                parsed_str = parsed_str.replace("\\r", "\r");
-                parsed_str = parsed_str.replace("\\t", "\t");
-                parsed_str = parsed_str.replace("\\e", "\x1b");
-                parsed_str = parsed_str.replace("\\\\", "\\");
-                parsed_str = parsed_str.replace("\\'", "\'");
-                parsed_str = parsed_str.replace("\\\"", "\"");
-                for i in 0..256 {
-                    parsed_str = parsed_str.replace(&format!("\\x{:2X}", i), &format!("{}", i as u8 as char));
-                }
-                IR::new(IRData::Str(parsed_str), Some(ast.row), Some(ast.col))
-            },
-            Rule::number => {
-                if ast.span.clone().contains(".") {
-                    IR::new(IRData::Float(ast.span.clone().parse::<f32>().unwrap()), Some(ast.row), Some(ast.col))
+                if is_f {
+                    toks.push(TokenMeta{tok: Token::Float(content.parse::<f32>().unwrap()), row: row, col: col});
                 }
                 else {
-                    if ast.span.clone().starts_with("0x") {
-                        IR::new(IRData::Integer(u64::from_str_radix(&ast.span.clone()[2..], 16).unwrap()), Some(ast.row), Some(ast.col))
-                    }
-                    else {
-                        IR::new(IRData::Integer(ast.span.clone().parse::<u64>().unwrap()), Some(ast.row), Some(ast.col))
-                    }
+                    toks.push(TokenMeta{tok: Token::Nat(content.parse::<usize>().unwrap()), row: row, col: col});
                 }
             },
-            Rule::primary => {
-                Self::build(ast.inner[0].clone())
+            ',' | ':' | ';' | '+' | '-' | '&' | '/' | '=' | '<' | '>' | '!' | '*' | '#' | '|' | '^' | '.' => {
+                i += 1;
+                col += 1;
+                if c == ',' {toks.push(TokenMeta{tok: Token::Comma, row: row, col: col});} else
+                    if c == ':' {toks.push(TokenMeta{tok: Token::Colon, row: row, col: col});} else
+                    if c == ';' {toks.push(TokenMeta{tok: Token::SemiColon, row: row, col: col});} else
+                    if c == '#' {toks.push(TokenMeta{tok: Token::Hash, row: row, col: col});} else
+                    if c == '^' {toks.push(TokenMeta{tok: Token::Carret, row: row, col: col});} else
+                    if c == '.' {toks.push(TokenMeta{tok: Token::Dot, row: row, col: col});} else
+                    if c == '+' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::PlusEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Plus, row: row, col: col});}} else
+                    if c == '-' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::MinusEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Minus, row: row, col: col});}} else
+                    if c == '*' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::AsteriskEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Asterisk, row: row, col: col});}} else
+                    if c == '&' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::AmpersandEq, row: row, col: col});}
+                        else if chars[i] == '&' {toks.push(TokenMeta{tok: Token::AmpersandAmpersand, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Ampersand, row: row, col: col});}} else
+                    if c == '/' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::FrontSlashEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::FrontSlash, row: row, col: col});}} else
+                    if c == '=' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::EqEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Eq, row: row, col: col});}} else
+                    if c == '<' {
+                        if chars[i] == '<' {toks.push(TokenMeta{tok: Token::LessLess, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Less, row: row, col: col});}} else
+                    if c == '>' {
+                        if chars[i] == '>' {toks.push(TokenMeta{tok: Token::GreaterGreater, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Greater, row: row, col: col});}} else
+                    if c == '!' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::BangEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Bang, row: row, col: col});}} else
+                    if c == '#' {toks.push(TokenMeta{tok: Token::Hash, row: row, col: col});} else
+                    if c == '|' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::PipeEq, row: row, col: col});}
+                        else if chars[i] == '|' {toks.push(TokenMeta{tok: Token::PipePipe, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Pipe, row: row, col: col});}} else
+                    if c == '^' {
+                        if chars[i] == '=' {toks.push(TokenMeta{tok: Token::CarretEq, row: row, col: col});}
+                        else {toks.push(TokenMeta{tok: Token::Carret, row: row, col: col});}} else
+                    if c == '.' {toks.push(TokenMeta{tok: Token::Dot, row: row, col: col});}
             },
-            Rule::binop => {
-                let lhs = Self::build(ast.inner[0].clone());
-                let op = ast.inner[1].span.clone();
-                let rhs = Self::build(ast.inner[2].clone());
-                let binopkind = if op == "+".to_string() {
-                    BinOpKind::Add } else if op == "*".to_string() {
-                    BinOpKind::Mul } else if op == "-".to_string() {
-                    BinOpKind::Sub } else if op == "/".to_string() {
-                    BinOpKind::Div } else if op == "%".to_string() {
-                    BinOpKind::Mod } else if op == "<<".to_string() {
-                    BinOpKind::LShft } else if op == ">>".to_string() {
-                    BinOpKind::RShft } else if op == "==".to_string() {
-                    BinOpKind::Eq } else if op == ">".to_string() {
-                    BinOpKind::Bigger } else if op == "<".to_string() {
-                    BinOpKind::Less } else if op == "<=".to_string() {
-                    BinOpKind::BiggerOrEq } else if op == ">=".to_string() {
-                    BinOpKind::LessOrEq } else if op == "!=".to_string() {
-                    BinOpKind::NEq } else if op == "&".to_string() {
-                    BinOpKind::And } else if op == "|".to_string() {
-                    BinOpKind::Or } else if op == "^".to_string() {
-                    BinOpKind::Xor } else if op == "->".to_string() {
-                    BinOpKind::Dot } else {todo!("Add more binops")};
-                IR::new(IRData::BinOp(binopkind, Box::new(lhs), Box::new(rhs)), Some(ast.row), Some(ast.col))
-            },
-            Rule::unaryop => {
-                let op = ast.inner[0].span.clone();
-                let vl = Self::build(ast.inner[1].clone());
-                let unopkind = if op == "+".to_string() {
-                    UnaryOpKind::Plus } else if op == "-".to_string() {
-                    UnaryOpKind::Minus } else if op == "~".to_string() {
-                    UnaryOpKind::Not } else if op == "!".to_string() {
-                    UnaryOpKind::LNot } else {todo!("Add more unaryops")};
-                IR::new(IRData::UnaryOp(unopkind, Box::new(vl)), Some(ast.row), Some(ast.col))
-            },
-            Rule::expr_atom => {
-                Self::build(ast.inner[0].clone())
-            },
-            Rule::expr => {
-                Self::build(ast.inner[0].clone())
-            },
-            Rule::defer => {
-                IR::new(IRData::Defer(Box::new(Self::build(ast.inner[0].clone()))), Some(ast.row), Some(ast.col))
-            },
-            Rule::import => {
-                IR::new(IRData::Import(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
-            },
-            Rule::asm => {
-                IR::new(IRData::Asm(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
-            },
-            Rule::llvm => {
-                IR::new(IRData::LLVM(ast.inner[0].span.clone()[1..ast.inner[0].span.clone().len()-1].to_string()), Some(ast.row), Some(ast.col))
-            },
-            Rule::comptime_run => {
-                IR::new(IRData::CompTimeRun(Box::new(Self::build(ast.inner[0].clone()))), Some(ast.row), Some(ast.col))
-            },
-            Rule::call => {
-                IR::new(IRData::Call(ast.inner[0].span.clone(), Self::build_expr_args(ast.inner[1].clone()).unwrap()), Some(ast.row), Some(ast.col))
-            },
-            Rule::if_stmt => {
-                IR::new(IRData::If(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone())), if ast.inner.len() == 3 {Some(Box::new(Self::build(ast.inner[2].clone())))} else {None}), Some(ast.row), Some(ast.col))
-            }
-            Rule::while_stmt => {
-                IR::new(IRData::While(Box::new(Self::build(ast.inner[0].clone())), Box::new(Self::build(ast.inner[1].clone()))), Some(ast.row), Some(ast.col))
-            }
-            Rule::func => {
-                let IRData::Declaration(decl) = Self::build(ast.inner[0].clone()).data else {panic!()};
-                let IRData::ID(name) = Self::build(ast.inner[1].clone()).data else {panic!()};
-                let typ = Self::build(ast.inner[3].clone());
-                IR::new(IRData::DeclareFunction(decl, name, Box::new(typ), Self::build_args(ast.inner[2].clone()).unwrap(), if ast.inner.len() == 5 {Some(Box::new(Self::build(ast.inner[4].clone())))} else {None}), Some(ast.row), Some(ast.col))
-            },
-            Rule::variable => {
-                let IRData::Declaration(decl) = Self::build(ast.inner[0].clone()).data else {panic!()};
-                let IRData::ID(name) = Self::build(ast.inner[1].clone()).data else {panic!()};
-                let typ = Self::build(ast.inner[2].clone());
-                IR::new(IRData::DeclareVariable(decl, name, Box::new(typ), if ast.inner.len() == 4 {Some(Box::new(Self::build(ast.inner[3].clone())))} else {None}), Some(ast.row), Some(ast.col))
-            },
-            Rule::set => {
-                let dest = Self::build(ast.inner[0].clone());
-                let value = Self::build(ast.inner[1].clone());
-                IR::new(IRData::Set(Box::new(dest), Box::new(value)), Some(ast.row), Some(ast.col))
-            },
-            Rule::struct_decl => {
-                let IRData::ID(name) = Self::build(ast.inner[0].clone()).data else {panic!()};
-                IR::new(IRData::DeclareStructure(name, Self::build_args(PrettyAst{rule: Rule::args, span: String::new(), inner: ast.inner[1..].to_vec(), row: ast.row, col: ast.col}).unwrap()), Some(ast.row), Some(ast.col))
-            },
-            _ => IR::new(IRData::Dummy, None, None),
-            
+            _ => todo!("{}", c)
         }
     }
+    toks
+}
+
+fn parser_program(toks: &[TokenMeta]) -> (&[TokenMeta], IR) {
+    todo!()
 }

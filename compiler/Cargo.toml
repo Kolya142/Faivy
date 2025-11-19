@@ -8,6 +8,5 @@ overflow-checks = false
 
 
 [dependencies]
-pest = "2.8.1"
-pest_derive = "2.8.1"
 rand = "0.9.2"
+libffi = "5.0.0"

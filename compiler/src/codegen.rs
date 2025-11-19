@@ -1,6 +1,5 @@
 use std::fs;
 use std::collections::HashMap;
-use pest::Parser;
 use crate::{parser::*, ir::*};
 
 #[derive(Debug,Clone,PartialEq)]
@@ -857,6 +856,16 @@ impl CodeGen {
         let mut state = state.clone();
         if let IRData::DeclareFunction(ref dt, ref name, ref typ, ref args, ref body) = ir.data {
             let variables = self.local_variables.clone();
+            {
+                let mut i = 0;
+                for func in self.functions.clone() {
+                    if func.name == *name {
+                        self.functions.remove(i);
+                        break;
+                    }
+                    i += 1;
+                }
+            }
             if *dt == DeclarationType::Global {
                 // TODO: generics for global functions
                 state.expected_typ = Some(*typ.clone());
@@ -978,6 +987,8 @@ impl CodeGen {
                 }
             }
             if !already_imported {
+                return todo!();
+                /*
                 self.imported.push(filename.clone());
                 let ast = FaivyParser::pretty_parse(
                     FaivyParser::parse(Rule::program, &fs::read_to_string(&filename).unwrap()
@@ -985,6 +996,7 @@ impl CodeGen {
                 );
                 let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
                 self.codegen(&CodeGenState {variables: vec![], typ: None, expected_typ: None}, IR::new(IRData::Block(ir), None, None));
+                */
             }
         }
         else if let IRData::CompTimeRun(ref code) = ir.data {

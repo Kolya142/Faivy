@@ -9,13 +9,21 @@ use parser::*;
 mod interpreter;
 mod ir;
 use ir::*;
-use pest::Parser;
 
 unsafe extern "C" {
     fn system(command: *const i8) -> i32;
+    fn dlopen(path: *const i8, flags: i32) -> *mut (); // WTF?
+    fn dlclose(handle: *mut ()) -> i32;
+    fn dlsym(handle: *mut (), symbol: *const i8) -> *mut ();
+    fn malloc(size: usize) -> *mut (); // sorry.
+    fn free(ptr: *mut ()) -> ();
+    fn memcpy(dst: *mut (), src: *const (), len: usize) -> *mut ();
+    fn printf(fmt: *const i8, ...) -> i32;
 }
 
 fn main() -> Result<(), ()> {
+    println!("{:?}", lexer("church alan turing alphawolf69 69 96 42 64 52 37 #run #piper << >> <= := ^^ &*#* no god or king. only man. ".to_string()));
+    /*
     let argv: Vec<_> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} [--help] [--dry] [--emit-only-llvm] <Faivy source code file name> [linker flags]", argv[0].clone());
@@ -75,64 +83,7 @@ fn main() -> Result<(), ()> {
                 panic!("Failed to link program:\n{:?}", cc_output);
             }
         }
-    }
+}
+    */
     return Ok(());
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn smoke_test() {
-        let ast = FaivyParser::pretty_parse(
-            FaivyParser::parse(Rule::program, &fs::read_to_string("tests/smoke.faivy").unwrap()
-            ).unwrap()
-        );
-        let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-        let mut codegen = CodeGen::new();
-        codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IRData::Block(ir));
-        let mut code = String::new();
-        code += &format!("{}", codegen.output);
-        let mut rng = rand::thread_rng();
-        let temp_qbe = format!("/tmp/{}.qbe", rng.r#gen::<u32>().to_string());
-        let temp_as = "output.s".to_string();
-        let _ = fs::write(temp_qbe.clone(), code);
-        let mut qbe_work = Command::new("qbe");
-        qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
-        println!("{:?}", qbe_work.output().unwrap());
-        let mut cc_work = Command::new("cc");
-        cc_work.arg(temp_as);
-        println!("{:?}", cc_work.output().unwrap());
-        assert_eq!(Command::new("./a.out").output().unwrap().status.success(), true);
-    }
-
-    #[test]
-    fn unit_test00() {
-        let ast = FaivyParser::pretty_parse(
-            FaivyParser::parse(Rule::program, &fs::read_to_string("tests/unit00.faivy").unwrap()
-            ).unwrap()
-        );
-        let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
-        let mut codegen = CodeGen::new();
-        codegen.codegen(&CodeGenState {variables: vec![], typ: None}, IRData::Block(ir));
-        let mut code = String::new();
-        code += &format!("{}", codegen.output);
-        println!("{:?}", code);
-        let mut rng = rand::thread_rng();
-        let temp_qbe = format!("/tmp/{}.qbe", rng.r#gen::<u32>().to_string());
-        let temp_as = "output.s".to_string();
-        let _ = fs::write(temp_qbe.clone(), code);
-        let mut qbe_work = Command::new("qbe");
-        qbe_work.arg(temp_qbe).arg("-o").arg(temp_as.clone());
-        println!("{:?}", qbe_work.output().unwrap());
-        let mut cc_work = Command::new("cc");
-        cc_work.arg(temp_as);
-        println!("{:?}", cc_work.output().unwrap());
-        let a_res = Command::new("./a.out").output().unwrap();
-        assert_eq!(a_res.status.success(), true);
-        assert_eq!(String::from_utf8(a_res.stdout).unwrap(), fs::read_to_string("tests/unit00.out").unwrap());
-    }
-}
-*/

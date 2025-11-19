@@ -1,6 +1,7 @@
-use crate::{ir::*, codegen::*, system, parser::*};
+use crate::{ir::*, codegen::*, system, dlopen, dlclose, dlsym, malloc, free, memcpy, printf, parser::*};
+use libffi::low::*;
+use std::ffi::CString;
 use std::io::Write;
-use pest::Parser;
 impl CodeGen {
     pub fn dyn_interpret(&mut self, state: &mut CodeGenState, ir: IR) -> IR {
         if let IRData::Float(_) = ir.data {
@@ -37,24 +38,6 @@ impl CodeGen {
                     return IR::new(IRData::Integer(system(format!("{}\0", cmd).as_ptr() as *const i8) as u64), None, None);
                 }
             }
-            if *name == "print_str".to_string() {
-                let IRData::Str(ref value) = self.dyn_interpret(state, args.clone()[0].clone()).data else {todo!("data at {} is not a string", self.fmt_pos(&ir))};
-                print!("{}", value);
-                let _ = std::io::stdout().flush();
-                return IR::new(IRData::Dummy, None, None);
-            }
-            if *name == "print_char".to_string() {
-                let IRData::Integer(ref value) = self.dyn_interpret(state, args.clone()[0].clone()).data else {todo!("data at {} is not a number", self.fmt_pos(&ir))};
-                print!("{}", *value as u8 as char);
-                let _ = std::io::stdout().flush();
-                return IR::new(IRData::Dummy, None, None);
-            }
-            if *name == "print_usize".to_string() {
-                let IRData::Integer(ref value) = self.dyn_interpret(state, args.clone()[0].clone()).data else {todo!("data at {} is not a number", self.fmt_pos(&ir))};
-                print!("{}", *value);
-                let _ = std::io::stdout().flush();
-                return IR::new(IRData::Dummy, None, None);
-            }
             if *name == "return".to_string() {
                 // TODO: return void
                 let value = self.dyn_interpret(state, args.clone()[0].clone());
@@ -64,8 +47,12 @@ impl CodeGen {
             if *name == "SizeOf".to_string() {
                 return IR::new(IRData::Integer(self.get_type_size(args[0].clone()).try_into().unwrap()), None, None);
             }
+            if *name == "cast".to_string() {
+                return args[0].clone();
+            }
             if *name == "emit_faivy".to_string() {
                 let IRData::Str(ref value) = self.dyn_interpret(state, args.clone()[0].clone()).data else {todo!("data at {} is not a string", self.fmt_pos(&ir))};
+                /*
                 let ast = FaivyParser::pretty_parse(
                     FaivyParser::parse(Rule::program, value
                     ).unwrap()
@@ -73,6 +60,8 @@ impl CodeGen {
                 let ir = ast.into_iter().map(IRBuilder::build).collect::<Vec<_>>();
                 self.codegen(state, IR::new(IRData::Scope(ir), None, None));
                 return IR::new(IRData::Dummy, None, None);
+                 */
+                todo!()
             }
             for func in self.comp_time_functions.clone() {
                 if func.name == *name {
@@ -105,7 +94,56 @@ impl CodeGen {
                         panic!("Excepted {} arguments at {} but got {} arguments", func.args.len(), *name, args.len());
                     }
                     let Some(body) = func.body else {
-                        panic!("{}: Cannot use extern/forward declared function at compile time; TODO: allow it", self.fmt_pos(&ir));
+                        let args: Vec<IRData> = args.iter().map(|arg| self.dyn_interpret(state, arg.clone()).data).collect();
+                        unsafe {
+                            let mut targs: Vec<*mut ffi_type> = vec![];
+                            let mut vargs: Vec<*mut _> = vec![];
+                            let mut queue_to_free: Vec<*mut _> = vec![];
+                            let mut cif: ffi_cif = Default::default();
+                            let dl = dlopen(c"/lib/x86_64-linux-gnu/libc.so.6".as_ptr(), 2);
+                            if dl == std::ptr::null_mut() {
+                                panic!("Your system doesn't support x86_64 GNU libc 6");
+                            }
+                            let sym = dlsym(dl, CString::new(func.real_name.clone()).unwrap().as_ptr());
+                            if sym == std::ptr::null_mut() {
+                                panic!("Unknown GNU libc 6 symbol: `{}`", func.real_name);
+                            }
+
+                            for arg in args.clone() {
+                                match arg {
+                                    IRData::Integer(i) => {
+                                        targs.push(&raw mut types::uint64);
+                                        let a = malloc(8) as *mut usize;
+                                        *a = i as usize;
+                                        vargs.push(a as *mut _);
+                                    }
+                                    IRData::Str(s) => {
+                                        let cs = CString::new(s).unwrap();
+                                        targs.push(&raw mut types::uint64);
+                                        let s = cs.count_bytes() + 1;
+                                        let a = malloc(s) as *mut ();
+                                        memcpy(a, cs.as_ptr() as *const (), s);
+                                        let b = malloc(8) as *mut ();
+                                        *(b as *mut usize) = a as usize;
+                                        vargs.push(b as *mut _);
+                                        queue_to_free.push(a as *mut _);
+                                    }
+                                    _ => todo!()
+                                }
+                            }
+                            
+                            prep_cif(&mut cif, ffi_abi_FFI_DEFAULT_ABI, targs.len(), &raw mut types::uint64, targs.as_mut_ptr()).unwrap();
+                            
+                            let res = call::<u64>(&mut cif, CodePtr(sym as *mut _), vargs.as_mut_ptr());
+                            for varg in vargs {
+                                free(varg as *mut ());
+                            }
+                            for f in queue_to_free {
+                                free(f as *mut ());
+                            }
+                            dlclose(dl);
+                            return IR::new(IRData::Integer(res), Some(0), Some(0));
+                        }
                     };
                     let saved_locals = self.local_variables.clone();
                     for i in 0..func.args.len() {
@@ -205,7 +243,6 @@ impl CodeGen {
             }
         }
         // TODOO: unaryop
-        // TODOOO: call
         // TODOOO: casts
         // TODO: structs
         // TODO: defer
