@@ -1,0 +1,16 @@
+fn001 :: () {
+    print("Hello, ");
+    print_int(35+34+42);
+    print("!\n");
+}
+
+fn002 :: () {
+    print("Programming, ");
+    print_int(1+2+4+8+16);
+    print("-nd world!\n");
+}
+
+main :: () {
+    fn001();
+    fn002();
+}
