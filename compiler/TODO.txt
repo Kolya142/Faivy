@@ -1,0 +1,4 @@
+Extern function declarations.
+Unhardcode print, print_int functions.
+Add control flow.
+Make bytecode less squizy.
