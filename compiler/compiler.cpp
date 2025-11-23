@@ -6,13 +6,15 @@
   513-8000 - calculations
   8001-8192 - function-private data(callee-saved)
 
-   pushi 4
-   pushi 5
+   movi 512 4
+   push 512
+   movi 512 5
+   push 512
    pop 514
    pop 513
    add 512 513 514
    push 512
-   pushi 512 1
+   pushi 1
    pop 514
    pop 513
    add 512 513 514
@@ -25,7 +27,7 @@ namespace Compiler {
 #endif // VERY_VEBOSE
         switch (ast.kind) {
         case Parser::AK_NUM: {
-            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSHI, ast.row, ast.col, {ast.n}});
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_MOVI, ast.row, ast.col, {512, ast.n}});
         } break;
         case Parser::AK_STR: {
             const char *s = ast.s.c_str();
@@ -36,20 +38,23 @@ namespace Compiler {
             }
             static_data->push_back(0);
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSHDSO, ast.row, ast.col, {i}});
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_POP, ast.row, ast.col, {512}});
         } break;
         case Parser::AK_SUM: {
             compile(prog, ast.inner[0], procs, static_data, cfunc);
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSH, ast.row, ast.col, {512}});
             compile(prog, ast.inner[1], procs, static_data, cfunc);
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSH, ast.row, ast.col, {512}});
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_POP, ast.row, ast.col, {514}});
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_POP, ast.row, ast.col, {513}});
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_ADD, ast.row, ast.col, {512, 514, 513}});
-            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSH, ast.row, ast.col, {512}});
         } break;
         case Parser::AK_CALL: {
             std::vector<size_t> args;
             for (size_t _i = ast.inner.size(); _i > 0; --_i) {
                 size_t i = _i - 1;
                 compile(prog, ast.inner[i], procs, static_data, cfunc);
+                prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSH, ast.row, ast.col, {512}});
             }
             for (size_t i = 0; i < ast.inner.size(); ++i) {
                 prog->push_back(Faivy::ByteCodeInst{Faivy::B_POP, ast.row, ast.col, {i}});
@@ -58,25 +63,35 @@ namespace Compiler {
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_CALL, ast.row, ast.col, args, ast.s});
         } break;
         case Parser::AK_CPP: {
-            if (cfunc != "<top>")
-                prog->push_back({Faivy::B_CPP, ast.row, ast.col, {}, Faivy::ssprintf("push(%s);\n", ast.s.c_str())});
-            else
-                prog->push_back({Faivy::B_CPP, ast.row, ast.col, {}, ast.s});
+            prog->push_back({Faivy::B_CPP, ast.row, ast.col, {}, ast.s});
         } break;
         case Parser::AK_RUN: {
-            std::vector<Faivy::ByteCodeInst> sprog = *prog; // VERY FAST CODE!
+            std::vector<Faivy::ByteCodeInst> sprog = *prog; // TODO: optimize
             compile(prog, ast.inner[0], procs, static_data, cfunc);
-            Faivy::interpret(Faivy::Slice<Faivy::ByteCodeInst>(prog->data(), prog->size()), Faivy::Slice<uint8_t>(static_data->data(), static_data->size()), procs, sprog.size());
+            size_t r = Faivy::interpret(Faivy::Slice<Faivy::ByteCodeInst>(prog->data(), prog->size()), Faivy::Slice<uint8_t>(static_data->data(), static_data->size()), procs, sprog.size());
+            printf("%zu;\n", r);
             *prog = sprog;
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_MOVI, ast.row, ast.col, {512, r}});
         } break;
         case Parser::AK_SEQ: {
             for (size_t i = 0; i < ast.inner.size(); ++i) {
                 compile(prog, ast.inner[i], procs, static_data, cfunc);
             }
         } break;
+        case Parser::AK_RID: {
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_LOAD_SYM, ast.row, ast.col, {512}, ast.s});
+        } break;
         case Parser::AK_PROC: {
             (*procs)[ast.s] = prog->size();
-            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PROC_START, ast.row, ast.col, {ast.inner[0].inner.size()}, ast.s});
+
+            std::vector<std::string> ses;
+
+            for (size_t i = 0; i < ast.inner[0].inner.size(); ++i) {
+                ses.push_back(ast.inner[0].inner[i].inner[0].s);
+                ses.push_back(ast.inner[0].inner[i].inner[1].s);
+            }
+            
+            prog->push_back(Faivy::ByteCodeInst{Faivy::B_PROC_START, ast.row, ast.col, {}, ast.s, ses});
             
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_PUSH, ast.row, ast.col, {8001}});
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_GSP, ast.row, ast.col, {8001}});
@@ -96,7 +111,7 @@ namespace Compiler {
             prog->push_back(Faivy::ByteCodeInst{Faivy::B_PROC_END, ast.row, ast.col});
         } break;
         default: {
-            fprintf(stderr, "TODO!\n");
+            fprintf(stderr, "TODO: %s!\n", Parser::akn[ast.kind]);
             exit(1);
         }
         }

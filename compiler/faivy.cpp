@@ -38,7 +38,8 @@ int main(int argc, char **argv) {
     Compiler::compile(&insts, ast, &procs, &static_data, "<top>");
 #ifdef VERY_VEBOSE
     for (auto inst : insts) {
-        std::cout << inst.kind << "\n";
+        std::cout << Faivy::bc_names[inst.kind] << " `" << inst.s << "` ";
+        std::cout << "\n";
     }
 #endif // VERY_VEBOSE
     char *ofn = strdup(argv[1]);

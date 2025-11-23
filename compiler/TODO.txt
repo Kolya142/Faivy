@@ -9,4 +9,4 @@ Use functions return value.
 Add type system.
 Pass data around interpreter & compiler.
 Auto forward declaration.
-Add bytecode assembly for bytecode debugging.
+Add bytecode assembler for bytecode debugging.

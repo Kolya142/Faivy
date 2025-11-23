@@ -1,0 +1,3 @@
+Text -> Tokens -> Ast -> ByteCode -> Compiler -> C -> Tokens -> Ast -> IR -> ELF Objects -> ELF Executable
+                             |                |
+                             -> Interpreter ->|

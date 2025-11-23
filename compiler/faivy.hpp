@@ -56,15 +56,18 @@ namespace Faivy {
         B_GSP,
         B_SSP,
         B_GET_SYM_PTR,
+        B_LOAD_SYM,
+        B_SAVE_SYM,
         B_PEEK64,
         B_POKE64,
     };
     extern const char *bc_names[];
-    struct ByteCodeInst {
+    struct ByteCodeInst { // Legacy code!
         ByteCodeInstKind kind;
         size_t row, col;
         std::vector<size_t> xs;
         std::string s;
+        std::vector<std::string> ses;
     };
     template<typename T>
     struct Slice {
@@ -81,14 +84,15 @@ namespace Faivy {
         }
     };
     std::string ssprintf(const char *fmt, ...);
-    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data);
     size_t istack_pop64(Slice<uint8_t> *s, size_t *sp);
     void istack_push64(Slice<uint8_t> *s, size_t *sp, size_t v);
-    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip);
+    size_t interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip);
     std::string compile(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs);
 }
 
 namespace Parser {
+    extern const char *tkn[];
+    extern const char *akn[];
     enum TokenKind {
         TK_ID,
         TK_STR,
@@ -112,7 +116,7 @@ namespace Parser {
     };
     std::vector<Token> lexer(const char *code);
     enum AstKind {
-        AK_ID,
+        AK_RID,
         AK_STR,
         AK_NUM,
         AK_SUM,
@@ -122,7 +126,8 @@ namespace Parser {
         AK_SEQ,
         AK_FIELD,
         AK_BC,
-        AK_RUN
+        AK_RUN,
+        AK_IF
     };
     struct Ast {
         AstKind kind;

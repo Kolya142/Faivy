@@ -1,17 +1,19 @@
-fn001 :: (a int) {
+fn001 :: (a s32) {
     print("Hello, ");
-    print_int(35+34+42);
+    print_int(a+42);
     print("!\n");
 }
 
-fn002 :: () {
+fn002 :: (a bool) {
     print("Programming, cup of tea No.");
-    print_int(#cpp "69-42" + 10);
+    print_int(#cpp "mtemp(69-42)" + 10);
     #run print("Hi, from comptime!\n");
+    print("!\n");
+    print_int(#run 640+820);
     print("!\n");
 }
 
 main :: () {
     fn001(69);
-    fn002();
+    fn002(false);
 }

@@ -46,6 +46,8 @@ namespace Faivy {
         "GSP",
         "SSP",
         "GET_SYM_PTR",
+        "LOAD_SYM",
+        "SAVE_SYM",
         "PEEK64",
         "POKE64",
     };
@@ -76,7 +78,7 @@ namespace Faivy {
         va_end(args);
         return str;
     }
-    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip) {
+    size_t interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip) {
         uint64_t *stack =(uint64_t *)malloc(8192*8);
         uint64_t *regs = (uint64_t *)malloc(8192*8);
         size_t sp = 0;
@@ -120,7 +122,7 @@ namespace Faivy {
                 assert(0 && "TODO: CALL(R,ABS)");
             } break;
             case B_RET: {
-                return;
+                return 0;
             } break;
             case B_PUSHDSO: {
                 push((size_t)static_data.start+inst->xs[0]);
@@ -140,7 +142,8 @@ namespace Faivy {
             case B_PROC_START: {
             } break;
             case B_PROC_END: {
-                return;
+                fprintf(stderr, "You cannot currently exit from a function in compile time execution\n");
+                exit(1);
             } break;
             case B_CPP: {
                 fprintf(stderr, "You cannot use #cpp in comptime mode\n");
@@ -153,8 +156,10 @@ namespace Faivy {
             }
             ++ip;
         }
+        size_t r = regs[512];
         free((void *)stack);
         free((void *)regs);
+        return r;
     }
     std::string compile(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs) {
         std::string output;
@@ -162,6 +167,17 @@ namespace Faivy {
         output += "#include <stdlib.h>\n";
         output += "#include <stdint.h>\n";
         output += "#include <assert.h>\n";
+        output += "typedef int8_t s8;\n";
+        output += "typedef int16_t s16;\n";
+        output += "typedef int32_t s32;\n";
+        output += "typedef int64_t s64;\n";
+        output += "typedef uint8_t u8;\n";
+        output += "typedef uint16_t u16;\n";
+        output += "typedef uint32_t u32;\n";
+        output += "typedef uint64_t u64;\n";
+        output += "typedef _Bool bool;\n";
+        output += "#define true ((bool)1);\n";
+        output += "#define false ((bool)0);\n";
         output += "#if !defined(__x86_64__) && !defined(_M_X64)\n";
         output += "#error \"Allowed only x86_64. Sorry.\"\n";
         output += "#endif\n";
@@ -169,6 +185,7 @@ namespace Faivy {
         output += "uint64_t stack[8192];\n";
         output += "size_t sp;\n";
         output += "#define push(w) do {stack[sp++] = (uint64_t)(w);} while(0)\n";
+        output += "#define mtemp(x) {regs[512] = (uint64_t)(x);}\n";
         output += "#define pop (stack[--sp])\n";
         output += "uint8_t static_data[] = {";
         for (size_t i = 0; i < static_data.size; ++i) {
@@ -250,16 +267,27 @@ namespace Faivy {
                 output += ssprintf("\tregs[%zu] = pop;\n", inst->xs[0]);
             } break;
             case B_PROC_START: {
-                output += ssprintf("int __gen_%s() {\n", inst->s.c_str());
+                output += ssprintf("int __gen_%s(", inst->s.c_str());
+                for (size_t i = 0; i < inst->ses.size(); i += 2) {
+                    output += ssprintf("%s %s", inst->ses[i+1].c_str(), inst->ses[i+0].c_str());
+                    if (i != inst->ses.size() - 2) output += ", ";
+                }
+                output += ") {\n";
             } break;
             case B_PROC_END: {
                 output += "}\n";
+            } break;
+            case B_LOAD_SYM: {
+                output += ssprintf("\tregs[%zu] = %s;\n", inst->xs[0], inst->s.c_str());
+            } break;
+            case B_SAVE_SYM: {
+                output += ssprintf("\t%s = regs[%zu];\n", inst->s.c_str(), inst->xs[0]);
             } break;
             case B_CPP: {
                 output += ssprintf("\t%s\n", inst->s.c_str());
             } break;
             default: {
-                fprintf(stderr, "Unknown opcode: %d!\n", inst->kind);
+                fprintf(stderr, "Unknown opcode: %s!\n", bc_names[inst->kind]);
                 exit(1);
             } break;
             }

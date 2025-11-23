@@ -1,43 +1,42 @@
 #include <faivy.hpp>
 
-
-const static char *tkn[] = {
-    "TK_ID",
-    "TK_STR",
-    "TK_NAT",
-    "TK_PLUS",
-    "TK_SEMICOLON",
-    "TK_2COLON",
-    "TK_COLON",
-    "TK_LPAR",
-    "TK_RPAR",
-    "TK_LCB",
-    "TK_RCB",
-    "TK_COMMA",
-    "TK_HASH"
-};
-
-const static char *akn[] = {
-    "AK_ID",
-    "AK_STR",
-    "AK_NUM",
-    "AK_SUM",
-    "AK_CPP",
-    "AK_CALL",
-    "AK_PROC",
-    "AK_SEQ",
-    "AK_FIELD",
-    "AK_BC",
-    "AK_RUN"
-};
-
 namespace Parser {
+    const char *tkn[] = {
+        "TK_ID",
+        "TK_STR",
+        "TK_NAT",
+        "TK_PLUS",
+        "TK_SEMICOLON",
+        "TK_2COLON",
+        "TK_COLON",
+        "TK_LPAR",
+        "TK_RPAR",
+        "TK_LCB",
+        "TK_RCB",
+        "TK_COMMA",
+        "TK_HASH"
+    };
+
+    const char *akn[] = {
+        "AK_RID",
+        "AK_STR",
+        "AK_NUM",
+        "AK_SUM",
+        "AK_CPP",
+        "AK_CALL",
+        "AK_PROC",
+        "AK_SEQ",
+        "AK_FIELD",
+        "AK_BC",
+        "AK_RUN",
+        "AK_IF"
+    };
     std::string Token::to_string() {
         return Faivy::ssprintf("Token<%s>(\"%s\", %d:%d)", tkn[kind], s.c_str(), row, col);
     }
     std::string Ast::to_string() {
         switch (kind) {
-        case AK_ID: case AK_STR:
+        case AK_RID: case AK_STR:
             return Faivy::ssprintf("Ast<%s>(%s)", akn[kind], s.c_str());
         case AK_NUM:
             return Faivy::ssprintf("Ast<%s>(%d)", akn[kind], n);
@@ -241,7 +240,7 @@ namespace Parser {
         }
         if (toks.start[0].kind == TK_ID) {
             auto t = toks.start[0];
-            return (PR) {toks.skip(), (Ast) {.kind = AK_ID, .row=toks.start[0].row, .col=toks.start[0].col, .s = t.s}, true};
+            return (PR) {toks.skip(), (Ast) {.kind = AK_RID, .row=toks.start[0].row, .col=toks.start[0].col, .s = t.s}, true};
         }
         return (PR) {.is_the=false};
     }
@@ -276,7 +275,7 @@ namespace Parser {
             toks = toks.skip();
             Token type = toks.start[0];
             toks = toks.skip();
-            args.inner.push_back(Ast{AK_FIELD, name.row, name.col, {{AK_ID, name.row, name.col, {}, name.s}, {AK_ID, type.row, type.col, {}, type.s}}});
+            args.inner.push_back(Ast{AK_FIELD, name.row, name.col, {{AK_RID, name.row, name.col, {}, name.s}, {AK_RID, type.row, type.col, {}, type.s}}}); // TODO: there must be LID.
             if (toks.start[0].kind == TK_RPAR) break;
             toks = skip(toks, TK_COMMA);
         }
@@ -304,6 +303,11 @@ namespace Parser {
             PR pr = parse_block(toks);
             pr.rest = pr.rest.skip();
             return pr;
+        }
+        if (toks.size >= 2 && toks.start[0].kind == TK_ID && toks.start[0].s == "if") {
+            PR cond = parse_rexpr(toks);
+            PR block = parse_stmt(cond.rest);
+            return PR{block.rest, Ast{AK_IF, toks.start[0].row, toks.start[0].col, {cond.ast, block.ast}}, true};
         }
         PR pr_proc = parse_proc(toks);
         if (pr_proc.is_the) return pr_proc;
