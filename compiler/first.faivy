@@ -1,16 +1,17 @@
-fn001 :: () {
+fn001 :: (a int) {
     print("Hello, ");
     print_int(35+34+42);
     print("!\n");
 }
 
 fn002 :: () {
-    print("Programming, ");
-    print_int(1+2+4+8+16);
-    print("-nd world!\n");
+    print("Programming, cup of tea No.");
+    print_int(#cpp "69-42" + 10);
+    #run print("Hi, from comptime!\n");
+    print("!\n");
 }
 
 main :: () {
-    fn001();
+    fn001(69);
     fn002();
 }

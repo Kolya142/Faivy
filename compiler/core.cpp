@@ -1,6 +1,54 @@
 #include <faivy.hpp>
+#include <assert.h>
 
 namespace Faivy {
+    const char *bc_names[] = {
+        "MOVI",
+        "CALL",
+        "CALLR",
+        "CALLA",
+        "CALLRA",
+        "JUC",
+        "JCT",
+        "JUCI",
+        "JCTI",
+        "JUCIA",
+        "JCTIA",
+        "JUCA",
+        "JCTA",        
+        "RET",        
+        "CHG",
+        "CHNG",
+        "CHL",
+        "CHNL",
+        "CHE",
+        "CHNE",        
+        "PUSH",
+        "POP",
+        "PUSHx",
+        "POPx",
+        "PUSHI",
+        "CPP",
+        "PUSHDS",
+        "PUSHDSO",
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "MOD",
+        "XOR",
+        "AND",
+        "OR",
+        "NOT",
+        "PROC_START",
+        "PROC_END",
+        "DROP",
+        "GSP",
+        "SSP",
+        "GET_SYM_PTR",
+        "PEEK64",
+        "POKE64",
+    };
     size_t istack_pop64(Slice<uint8_t> *s, size_t *sp) {
         if (*sp < 8) {
             return 0;
@@ -28,73 +76,100 @@ namespace Faivy {
         va_end(args);
         return str;
     }
-    /*
-    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data) {
-        size_t ip = 0;
-        Slice<uint8_t> stack((uint8_t *)malloc(8192), 8192);
+    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip) {
+        uint64_t *stack =(uint64_t *)malloc(8192*8);
+        uint64_t *regs = (uint64_t *)malloc(8192*8);
         size_t sp = 0;
-        std::unordered_map<std::string, size_t> locals;
+        #define push(a) {stack[sp] = a;++sp;}
+        #define pop(a) (--sp,stack[sp])
         while (ip < code.size) {
             ByteCodeInst *inst = &code.start[ip];
             switch (inst->kind) {
-            case B_PUSH: {
-                istack_push64(&stack, &sp, inst->n0);
-            } break;
-            case B_ADD: {
-                size_t b = istack_pop64(&stack, &sp);
-                size_t a = istack_pop64(&stack, &sp);
-                istack_push64(&stack, &sp, b+a);
-            } break;
-            case B_STR: {
-                istack_push64(&stack, &sp, (size_t)static_data.start+inst->n0);
+            case B_MOVI: {
+                regs[inst->xs[0]] = inst->xs[1];
             } break;
             case B_CALL: {
-                if (inst->s0 == "print") {
-                    printf("%s", (const char *)istack_pop64(&stack, &sp));
+                if (inst->s == "print") {
+                    if (inst->xs.size() != 1) {
+                        fprintf(stderr, "Error: print() function requires 1 arguments.");
+                        exit(1);
+                    }
+                    printf("%s", (const char *)regs[inst->xs[0]]);
                 }
-                if (inst->s0 == "print_int") {
-                    printf("%zu", istack_pop64(&stack, &sp));
+                else if (inst->s == "print_int") {
+                    if (inst->xs.size() != 1) {
+                        fprintf(stderr, "Error: print_int() function requires 1 arguments.");
+                        exit(1);
+                    }
+                    printf("%zu", regs[inst->xs[0]]);
+                }
+                else if (procs->count(inst->s)) {
+                    interpret(code, static_data, procs, (*procs)[inst->s]);
+                }
+                else {
+                    assert(0 && "TODO: external function calls in interpret mode");
                 }
             } break;
-            case B_ALLOCA: {
-                if (sp < inst->n0) {
-                    break;
-                }
-                sp -= inst->n0;
-                locals[inst->s0] = (size_t)&stack.start[sp];
+            case B_CALLR: {
+                assert(0 && "TODO: CALL(R)");
             } break;
-            case B_SAVE_STACK: {
-                locals[inst->s0] = sp;
+            case B_CALLA: {
+                assert(0 && "TODO: CALL(ABS)");
             } break;
-            case B_RES_STACK: {
-                sp = locals[inst->s0];
+            case B_CALLRA: {
+                assert(0 && "TODO: CALL(R,ABS)");
+            } break;
+            case B_RET: {
+                return;
+            } break;
+            case B_PUSHDSO: {
+                push((size_t)static_data.start+inst->xs[0]);
+            } break;
+            case B_PUSH: {
+                push(regs[inst->xs[0]]);
+            } break;
+            case B_PUSHI: {
+                push(inst->xs[0]);
+            } break;
+            case B_ADD: {
+                regs[inst->xs[0]] = regs[inst->xs[1]] + regs[inst->xs[2]];
+            } break;
+            case B_POP: {
+                regs[inst->xs[0]] = pop();
+            } break;
+            case B_PROC_START: {
+            } break;
+            case B_PROC_END: {
+                return;
+            } break;
+            case B_CPP: {
+                fprintf(stderr, "You cannot use #cpp in comptime mode\n");
+                exit(1);
+            } break;
+            default: {
+                fprintf(stderr, "Unknown opcode: %s!\n", bc_names[inst->kind]);
+                exit(1);
             } break;
             }
             ++ip;
         }
+        free((void *)stack);
+        free((void *)regs);
     }
-    */
     std::string compile(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs) {
         std::string output;
+        output += "#include <stdio.h>\n";
+        output += "#include <stdlib.h>\n";
         output += "#include <stdint.h>\n";
         output += "#include <assert.h>\n";
-        output += "#include <stdio.h>\n";
-        output += "uint8_t stack[8192];\n";
+        output += "#if !defined(__x86_64__) && !defined(_M_X64)\n";
+        output += "#error \"Allowed only x86_64. Sorry.\"\n";
+        output += "#endif\n";
+        output += "uint64_t regs[8192];\n";
+        output += "uint64_t stack[8192];\n";
         output += "size_t sp;\n";
-        output += "size_t istack_pop64() {\n";
-        output += "\tif (sp < 8) {\n";
-        output += "\t\treturn 0;\n";
-        output += "\t}\n";
-        output += "\tsp -= 8;\n";
-        output += "\treturn *(size_t*)&stack[sp];\n";
-        output += "}\n";
-        output += "void istack_push64(size_t v) {\n";
-        output += "\tif (sp > 8192-8) {\n";
-        output += "\t\treturn;\n";
-        output += "\t}\n";
-        output += "\t*(size_t*)&stack[sp] = v;\n";
-        output += "\tsp += 8;\n";
-        output += "}\n";
+        output += "#define push(w) do {stack[sp++] = (uint64_t)(w);} while(0)\n";
+        output += "#define pop (stack[--sp])\n";
         output += "uint8_t static_data[] = {";
         for (size_t i = 0; i < static_data.size; ++i) {
             output += ssprintf("0x%02X", static_data.start[i]);
@@ -104,62 +179,84 @@ namespace Faivy {
         }
         output += "};\n";
         size_t cs = code.size;
+        size_t prev_row = -1;
         for (size_t i = 0; i < cs; ++i) {
             ByteCodeInst *inst = &code.start[i];
+            if (prev_row != inst->row) {
+                // output += ssprintf(".line %zu \"first.faivy\"\n", inst->row);
+                prev_row = inst->row;
+            }
             switch (inst->kind) {
-            case B_PUSH: {
-                output += ssprintf("\tistack_push64(%zu);\n", inst->n0);
-            } break;
-            case B_ADD: {
-                output += "\t{\n";
-                output += "\t\tsize_t b = istack_pop64();\n";
-                output += "\t\tsize_t a = istack_pop64();\n";
-                output += "\t\tistack_push64(b+a);\n";
-                output += "\t}\n";
-            } break;
-            case B_STR: {
-                output += ssprintf("\tistack_push64((size_t)static_data+%zu);\n", inst->n0);
+            case B_MOVI: {
+                output += ssprintf("\tregs[%zu] = %zu;\n", inst->xs[0], inst->xs[1]);
             } break;
             case B_CALL: {
-                if (inst->s0 == "print") {
-                    if (inst->n0 != 1) {
+                if (inst->s == "print") {
+                    if (inst->xs.size() != 1) {
                         fprintf(stderr, "Error: print() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += "\tprintf(\"%s\", (const char *)istack_pop64());\n";
+                    output += ssprintf("\tprintf(\"%%s\", (const char *)regs[%zu]);\n", inst->xs[0]);
                 }
-                else if (inst->s0 == "print_int") {
-                    if (inst->n0 != 1) {
+                else if (inst->s == "print_int") {
+                    if (inst->xs.size() != 1) {
                         fprintf(stderr, "Error: print_int() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += "\tprintf(\"%zu\", istack_pop64());\n";
+                    output += ssprintf("\tprintf(\"%%zu\", regs[%zu]);\n", inst->xs[0]);
                 }
                 else {
-                    output += ssprintf("\t__gen_%s();\n", inst->s0.c_str());
+                    output += ssprintf("\t__gen_%s(", inst->s.c_str());
+                    for (size_t i = 0; i < inst->xs.size(); ++i) {
+                        output += ssprintf("regs[%zu]", i);
+                        if (i != inst->xs.size() - 1) {
+                            output += ", ";
+                        }
+                    }
+                    output += ");\n";
                 }
             } break;
-            case B_ALLOCA: {
-                output += ssprintf("\tif (sp < %zu) {\n", inst->n0);
-                output += "\t\tbreak;\n";
-                output += "\t}\n";
-                output += ssprintf("\tsp -= %zu;\n", inst->n0);
-                output += ssprintf("\tsize_t %s = (size_t)&stack[sp];\n", inst->s0.c_str());
+            case B_CALLR: {
+                assert(0 && "TODO: CALL(R)");
             } break;
-            case B_SAVE_STACK: {
-                output += ssprintf("\tsize_t %s = sp;\n", inst->s0.c_str());
+            case B_CALLA: {
+                assert(0 && "TODO: CALL(ABS)");
             } break;
-            case B_RES_STACK: {
-                output += ssprintf("\tsp = %s;\n", inst->s0.c_str());
-            } break;
-            case B_CPP: {
-                output += ssprintf("\t%s\n", inst->s0.c_str());
+            case B_CALLRA: {
+                assert(0 && "TODO: CALL(R,ABS)");
             } break;
             case B_RET: {
-                output += "\treturn istack_pop64();\n}\n";
+                output += "\treturn 0;\n";
             } break;
-            case B_OPEN_PROC: {
-                output += ssprintf("int __gen_%s() {\n", inst->s0.c_str());
+            case B_PUSHDSO: {
+                output += ssprintf("\tpush(static_data+%zu);\n", inst->xs[0]);
+            } break;
+            case B_PUSH: {
+                output += ssprintf("\tpush(regs[%zu]);\n", inst->xs[0]);
+            } break;
+            case B_PUSHI: {
+                output += ssprintf("\tpush(%zu);\n", inst->xs[0]);
+            } break;
+            case B_GSP: {
+                output += ssprintf("\tregs[%zu] = sp;\n", inst->xs[0]);
+            } break;
+            case B_SSP: {
+                output += ssprintf("\tsp = regs[%zu];\n", inst->xs[0]);
+            } break;
+            case B_ADD: {
+                output += ssprintf("\tregs[%zu] = regs[%zu]+regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
+            case B_POP: {
+                output += ssprintf("\tregs[%zu] = pop;\n", inst->xs[0]);
+            } break;
+            case B_PROC_START: {
+                output += ssprintf("int __gen_%s() {\n", inst->s.c_str());
+            } break;
+            case B_PROC_END: {
+                output += "}\n";
+            } break;
+            case B_CPP: {
+                output += ssprintf("\t%s\n", inst->s.c_str());
             } break;
             default: {
                 fprintf(stderr, "Unknown opcode: %d!\n", inst->kind);

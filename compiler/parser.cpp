@@ -13,7 +13,8 @@ const static char *tkn[] = {
     "TK_RPAR",
     "TK_LCB",
     "TK_RCB",
-    "TK_COMMA"
+    "TK_COMMA",
+    "TK_HASH"
 };
 
 const static char *akn[] = {
@@ -21,10 +22,13 @@ const static char *akn[] = {
     "AK_STR",
     "AK_NUM",
     "AK_SUM",
+    "AK_CPP",
     "AK_CALL",
     "AK_PROC",
     "AK_SEQ",
-    "AK_FIELD"
+    "AK_FIELD",
+    "AK_BC",
+    "AK_RUN"
 };
 
 namespace Parser {
@@ -40,7 +44,7 @@ namespace Parser {
         case AK_SUM:
             return Faivy::ssprintf("%s + %s", inner[0].to_string().c_str(), inner[1].to_string().c_str());
         default:
-            return "Ast<TODO>()";
+            return Faivy::ssprintf("Ast<%s>(\?\?\?)", akn[kind]);
         }
         return "Ast<Invalid>()";
     }
@@ -167,6 +171,11 @@ namespace Parser {
                 }
                 else toks.push_back(Token{TK_COLON, "", row, col});
             } break;
+            case '#': {
+                toks.push_back(Token{TK_HASH, "", row, col});
+                ++col;
+                ++code;
+            } break;
             default:
                 fprintf(stderr, "Unexpected `%c`\n", *code);
                 exit(1);
@@ -180,16 +189,32 @@ namespace Parser {
         }
         if (toks.start[0].kind == TK_NAT) {
             auto t = toks.start[0];
-            return (PR) {toks.skip(), (Ast) {.kind = AK_NUM, .n = (size_t)std::atoi(t.s.c_str())}, true};
+            return (PR) {toks.skip(), (Ast) {.kind = AK_NUM, .row=toks.start[0].row, .col=toks.start[0].col, .n = (size_t)std::atoi(t.s.c_str())}, true};
         }
         if (toks.start[0].kind == TK_STR) {
             auto t = toks.start[0];
-            return (PR) {toks.skip(), (Ast) {.kind = AK_STR, .s = t.s}, true};
+            return (PR) {toks.skip(), (Ast) {.kind = AK_STR, .row=toks.start[0].row, .col=toks.start[0].col, .s = t.s}, true};
+        }
+        if (toks.size >= 2 && toks.start[0].kind == TK_HASH && toks.start[1].kind == TK_ID) {
+            if (toks.start[1].s == "cpp") {
+                if (toks.size < 3 || toks.start[2].kind != TK_STR)
+                    return {.is_the=false};
+                return {toks.skip(3), {.kind = AK_CPP, /*I think pointing to '#' is more intuitive for user*/.row=toks.start[0].row, .col=toks.start[0].col, .s = toks.start[2].s}, true};
+            }
+            if (toks.start[1].s == "run") {
+                if (toks.size < 3)
+                    return {.is_the=false};
+                toks = toks.skip(2);
+                PR pr = parse_rexpr(toks);
+                if (!pr.is_the) return pr;
+                return {pr.rest, {AK_RUN, pr.ast.row, pr.ast.col, {pr.ast}}, true};
+            }
+            return {.is_the=false};
         }
         if (toks.size >= 2 && toks.start[0].kind == TK_ID && toks.start[1].kind == TK_LPAR) {
             auto id = toks.start[0];
             toks = toks.skip(2);
-            PR pr{{}, {.kind = AK_CALL, .inner = {} , .s=id.s}, true};
+            PR pr{{}, {.kind = AK_CALL, .row=toks.start[0].row, .col=toks.start[0].col, .inner = {}, .s=id.s}, true};
             while (toks.size >= 2) {
                 if (toks.start[0].kind == TK_RPAR) {
                     toks = skip(toks, TK_RPAR);
@@ -214,6 +239,10 @@ namespace Parser {
             pr.rest = toks;
             return pr;
         }
+        if (toks.start[0].kind == TK_ID) {
+            auto t = toks.start[0];
+            return (PR) {toks.skip(), (Ast) {.kind = AK_ID, .row=toks.start[0].row, .col=toks.start[0].col, .s = t.s}, true};
+        }
         return (PR) {.is_the=false};
     }
     Faivy::Slice<Token> skip(Faivy::Slice<Token> toks, TokenKind tk) {
@@ -231,7 +260,7 @@ namespace Parser {
             PR rhs = parse_primary(toks);
             if (!rhs.is_the) return rhs;
             toks = rhs.rest;
-            pr_prim = PR{rhs.rest, Ast{AK_SUM, {pr_prim.ast, rhs.ast}}, true};
+            pr_prim = PR{rhs.rest, Ast{AK_SUM, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
         }
         return pr_prim;
     }
@@ -239,20 +268,37 @@ namespace Parser {
         if (toks.size < 5 /* id₀ ::₁ (₂ )₃ {₄ }₅ */ || toks.start[0].kind != TK_ID || toks.start[1].kind != TK_2COLON || toks.start[2].kind != TK_LPAR) return PR{.is_the=false};
         Ast args{AK_SEQ, {}};
         std::string name = toks.start[0].s;
+        size_t row = toks.start[0].row;
+        size_t col = toks.start[0].col;
         toks = toks.skip(3);
-        for (;;) {
-            PR pr_rexpr = parse_rexpr(toks);
-            if (!pr_rexpr.is_the) break;
-            toks = pr_rexpr.rest;
-            std::string type = toks.start[0].s;
+        while (toks.size >= 3 && toks.start[0].kind != TK_RPAR) {
+            Token name = toks.start[0];
             toks = toks.skip();
-            args.inner.push_back({AK_FIELD, {pr_rexpr.ast, {AK_ID, {}, type}}});
+            Token type = toks.start[0];
+            toks = toks.skip();
+            args.inner.push_back(Ast{AK_FIELD, name.row, name.col, {{AK_ID, name.row, name.col, {}, name.s}, {AK_ID, type.row, type.col, {}, type.s}}});
+            if (toks.start[0].kind == TK_RPAR) break;
+            toks = skip(toks, TK_COMMA);
         }
         toks = skip(toks, TK_RPAR);
         PR pr_stmt = parse_stmt(toks);
-        return PR{pr_stmt.rest, {AK_PROC, {args, pr_stmt.ast}, name}, true};
+        return PR{pr_stmt.rest, {AK_PROC, row, col, {args, pr_stmt.ast}, name}, true};
     }
     PR parse_stmt(Faivy::Slice<Token> toks) {
+        /*
+        if (toks.size >= 2 && toks.start[0].kind == TK_HASH && toks.start[1].kind == TK_ID) {
+            if (toks.start[1].s == "bytecode") {
+                if (toks.size < 3)
+                    return {.is_the=false};
+                std::vector<Faivy::ByteCodeInst> bc;
+                toks = toks.skip(2);
+                PR pr = parse_rexpr(toks);
+                if (!pr.is_the) return pr;
+                return {pr.rest, {.kind=AK_BC, .row=pr.ast.row, .col=pr.ast.col, .bcin=bc}, true};
+            }
+            return {.is_the=false};
+        }
+        */
         if (toks.size >= 2 && toks.start[0].kind == TK_LCB) {
             toks = toks.skip();
             PR pr = parse_block(toks);
@@ -275,6 +321,7 @@ namespace Parser {
             if (!pr_stmt.is_the) break;
             ast.inner.push_back(pr_stmt.ast);
             toks = pr_stmt.rest;
+            // std::cout << "[First token after a stmt] " << toks.start[0].to_string() << "\n";
         }
         return PR{toks, ast, true};
     }

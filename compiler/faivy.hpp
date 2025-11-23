@@ -7,25 +7,64 @@
 #include <stdarg.h>
 #include <vector>
 
+#define CC "cc"
+#define CFLAGS "-O3"
+#define CLIBS ""
+
 namespace Faivy {
     enum ByteCodeInstKind {
-        B_CALL, // stack --
-        B_RET, // stack --
-        B_STR, // n0 -- stack
-        B_PUSH, // n0 -- stack
-        B_ADD, // stack -- stack
-        B_ALLOCA, // n0 -- s0 stack
-        B_SAVE_STACK, // -- s0
-        B_RES_STACK, // s0 --
-        B_CPP, // s0 -- insert s0 as CPP code to output
-        B_OPEN_PROC, // s0 -- 
+        B_MOVI,
+        B_CALL,
+        B_CALLR,
+        B_CALLA,
+        B_CALLRA,
+        B_JUC,
+        B_JCT,
+        B_JUCI,
+        B_JCTI,
+        B_JUCIA,
+        B_JCTIA,
+        B_JUCA,
+        B_JCTA,        
+        B_RET,        
+        B_CHG,
+        B_CHNG,
+        B_CHL,
+        B_CHNL,
+        B_CHE,
+        B_CHNE,        
+        B_PUSH,
+        B_POP,
+        B_PUSHx,
+        B_POPx,
+        B_PUSHI,
+        B_CPP,
+        B_PUSHDS,
+        B_PUSHDSO,
+        B_ADD,
+        B_SUB,
+        B_MUL,
+        B_DIV,
+        B_MOD,
+        B_XOR,
+        B_AND,
+        B_OR,
+        B_NOT,
+        B_PROC_START,
+        B_PROC_END,
+        B_DROP,
+        B_GSP,
+        B_SSP,
+        B_GET_SYM_PTR,
+        B_PEEK64,
+        B_POKE64,
     };
+    extern const char *bc_names[];
     struct ByteCodeInst {
         ByteCodeInstKind kind;
-        std::string s0;
-        std::string s1;
-        size_t n0;
-        size_t n1;
+        size_t row, col;
+        std::vector<size_t> xs;
+        std::string s;
     };
     template<typename T>
     struct Slice {
@@ -45,6 +84,7 @@ namespace Faivy {
     void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data);
     size_t istack_pop64(Slice<uint8_t> *s, size_t *sp);
     void istack_push64(Slice<uint8_t> *s, size_t *sp, size_t v);
+    void interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip);
     std::string compile(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs);
 }
 
@@ -62,6 +102,7 @@ namespace Parser {
         TK_LCB,
         TK_RCB,
         TK_COMMA,
+        TK_HASH,
     };
     struct Token {
         TokenKind kind;
@@ -75,16 +116,21 @@ namespace Parser {
         AK_STR,
         AK_NUM,
         AK_SUM,
+        AK_CPP,
         AK_CALL,
         AK_PROC,
         AK_SEQ,
         AK_FIELD,
+        AK_BC,
+        AK_RUN
     };
     struct Ast {
         AstKind kind;
+        size_t row, col;
         std::vector<Ast> inner;
         std::string s;
         size_t n;
+        std::vector<Faivy::ByteCodeInst> bcin;
         std::string to_string();
     };
     struct PR {
@@ -104,6 +150,6 @@ namespace Parser {
 #define vector_extend(a, b) (a).insert((a).end(), (b).begin(), (b).end())
 
 namespace Compiler {
-    void compile(std::vector<Faivy::ByteCodeInst> *prog, Parser::Ast ast, std::unordered_map<std::string, size_t> *procs, std::vector<uint8_t> *static_data);
+    void compile(std::vector<Faivy::ByteCodeInst> *prog, Parser::Ast ast, std::unordered_map<std::string, size_t> *procs, std::vector<uint8_t> *static_data, std::string cfunc);
 }
 

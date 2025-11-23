@@ -1,9 +1,10 @@
-set -xe
+set -e
 
 CPP=clang++
-CPFLAGS="-I. -g"
+CPFLAGS="-I. -g -O3"
 
-$CPP $CPFLAGS faivy.cpp core.cpp parser.cpp compiler.cpp -o faivy
-./faivy first.faivy
-$CPP $CPFLAGS first.cpp -o first
-./first
+if [ "@"$1 = "@vv" ]; then
+    time $CPP $CPFLAGS -DVERY_VEBOSE faivy.cpp core.cpp parser.cpp compiler.cpp -o faivy;
+else
+    time $CPP $CPFLAGS faivy.cpp core.cpp parser.cpp compiler.cpp -o faivy;
+fi
