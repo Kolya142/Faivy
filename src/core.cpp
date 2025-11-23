@@ -80,10 +80,10 @@ namespace Faivy {
     }
     size_t interpret(Slice<ByteCodeInst> code, Slice<uint8_t> static_data, std::unordered_map<std::string, size_t> *procs, size_t ip) {
         uint64_t *stack =(uint64_t *)malloc(8192*8);
-        uint64_t *regs = (uint64_t *)malloc(8192*8);
+        uint64_t *regs = (uint64_t *)malloc(4*8);
         size_t sp = 0;
-        #define push(a) {stack[sp] = a;++sp;}
-        #define pop(a) (--sp,stack[sp])
+        #define push(a) {stack[sp++] = a;}
+        #define pop stack[--sp]
         while (ip < code.size) {
             ByteCodeInst *inst = &code.start[ip];
             switch (inst->kind) {
@@ -96,14 +96,14 @@ namespace Faivy {
                         fprintf(stderr, "Error: print() function requires 1 arguments.");
                         exit(1);
                     }
-                    printf("%s", (const char *)regs[inst->xs[0]]);
+                    printf("%s", (const char *)pop);
                 }
                 else if (inst->s == "print_int") {
                     if (inst->xs.size() != 1) {
                         fprintf(stderr, "Error: print_int() function requires 1 arguments.");
                         exit(1);
                     }
-                    printf("%zu", regs[inst->xs[0]]);
+                    printf("%zu", pop);
                 }
                 else if (procs->count(inst->s)) {
                     interpret(code, static_data, procs, (*procs)[inst->s]);
@@ -136,8 +136,20 @@ namespace Faivy {
             case B_ADD: {
                 regs[inst->xs[0]] = regs[inst->xs[1]] + regs[inst->xs[2]];
             } break;
+            case B_SUB: {
+                regs[inst->xs[0]] = regs[inst->xs[1]] - regs[inst->xs[2]];
+            } break;
+            case B_MUL: {
+                regs[inst->xs[0]] = regs[inst->xs[1]] * regs[inst->xs[2]];
+            } break;
+            case B_DIV: {
+                regs[inst->xs[0]] = regs[inst->xs[1]] / regs[inst->xs[2]];
+            } break;
+            case B_MOD: {
+                regs[inst->xs[0]] = regs[inst->xs[1]] % regs[inst->xs[2]];
+            } break;
             case B_POP: {
-                regs[inst->xs[0]] = pop();
+                regs[inst->xs[0]] = pop;
             } break;
             case B_PROC_START: {
             } break;
@@ -156,7 +168,7 @@ namespace Faivy {
             }
             ++ip;
         }
-        size_t r = regs[512];
+        size_t r = regs[0];
         free((void *)stack);
         free((void *)regs);
         return r;
@@ -181,11 +193,11 @@ namespace Faivy {
         output += "#if !defined(__x86_64__) && !defined(_M_X64)\n";
         output += "#error \"Allowed only x86_64. Sorry.\"\n";
         output += "#endif\n";
-        output += "uint64_t regs[8192];\n";
+        output += "uint64_t regs[4];\n";
         output += "uint64_t stack[8192];\n";
         output += "size_t sp;\n";
         output += "#define push(w) do {stack[sp++] = (uint64_t)(w);} while(0)\n";
-        output += "#define mtemp(x) {regs[512] = (uint64_t)(x);}\n";
+        output += "#define mtemp(x) {regs[0] = (uint64_t)(x);}\n";
         output += "#define pop (stack[--sp])\n";
         output += "uint8_t static_data[] = {";
         for (size_t i = 0; i < static_data.size; ++i) {
@@ -197,7 +209,10 @@ namespace Faivy {
         output += "};\n";
         size_t cs = code.size;
         size_t prev_row = -1;
+        bool in_proc = false;
         for (size_t i = 0; i < cs; ++i) {
+            if (in_proc)
+                output += ssprintf("\tmarkov%zu:;\n", i);
             ByteCodeInst *inst = &code.start[i];
             if (prev_row != inst->row) {
                 // output += ssprintf(".line %zu \"first.faivy\"\n", inst->row);
@@ -213,24 +228,36 @@ namespace Faivy {
                         fprintf(stderr, "Error: print() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += ssprintf("\tprintf(\"%%s\", (const char *)regs[%zu]);\n", inst->xs[0]);
+                    output += ssprintf("\tmtemp(printf(\"%%s\", (const char *)regs[%zu]));\n", inst->xs[0]);
                 }
                 else if (inst->s == "print_int") {
                     if (inst->xs.size() != 1) {
                         fprintf(stderr, "Error: print_int() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += ssprintf("\tprintf(\"%%zu\", regs[%zu]);\n", inst->xs[0]);
+                    output += ssprintf("\tmtemp(printf(\"%%zu\", regs[%zu]));\n", inst->xs[0]);
                 }
                 else {
-                    output += ssprintf("\t__gen_%s(", inst->s.c_str());
-                    for (size_t i = 0; i < inst->xs.size(); ++i) {
-                        output += ssprintf("regs[%zu]", i);
-                        if (i != inst->xs.size() - 1) {
+                    output += "\t{\n";
+                    if (inst->xs[0]) {
+                        output += "\t\tsize_t ";
+                        for (size_t i = 0; i < inst->xs[0]; ++i) {
+                            output += ssprintf("a%zu = pop", i);
+                            if (i != inst->xs[0] - 1) {
+                                output += ", ";
+                            }
+                        }
+                        output += ";\n";
+                    }
+                    output += ssprintf("\t\tmtemp(%s(", inst->s.c_str());
+                    for (size_t i = 0; i < inst->xs[0]; ++i) {
+                        output += ssprintf("a%zu", i);
+                        if (i != inst->xs[0] - 1) {
                             output += ", ";
                         }
                     }
-                    output += ");\n";
+                    output += "));\n";
+                    output += "\t}\n";
                 }
             } break;
             case B_CALLR: {
@@ -243,7 +270,7 @@ namespace Faivy {
                 assert(0 && "TODO: CALL(R,ABS)");
             } break;
             case B_RET: {
-                output += "\treturn 0;\n";
+                output += ssprintf("\treturn regs[%zu];\n", inst->xs[0]);
             } break;
             case B_PUSHDSO: {
                 output += ssprintf("\tpush(static_data+%zu);\n", inst->xs[0]);
@@ -263,22 +290,54 @@ namespace Faivy {
             case B_ADD: {
                 output += ssprintf("\tregs[%zu] = regs[%zu]+regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
+            case B_SUB: {
+                output += ssprintf("\tregs[%zu] = regs[%zu]-regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
+            case B_MUL: {
+                output += ssprintf("\tregs[%zu] = regs[%zu]*regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
+            case B_DIV: {
+                output += ssprintf("\tregs[%zu] = regs[%zu]/regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
+            case B_MOD: {
+                output += ssprintf("\tregs[%zu] = regs[%zu]%regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
             case B_POP: {
                 output += ssprintf("\tregs[%zu] = pop;\n", inst->xs[0]);
             } break;
             case B_PROC_START: {
-                output += ssprintf("int __gen_%s(", inst->s.c_str());
-                for (size_t i = 0; i < inst->ses.size(); i += 2) {
-                    output += ssprintf("%s %s", inst->ses[i+1].c_str(), inst->ses[i+0].c_str());
-                    if (i != inst->ses.size() - 2) output += ", ";
+                if (inst->s == "main") {
+                    output += "int __generated_main(";
                 }
+                else {
+                    output += ssprintf("size_t %s(", inst->s.c_str());
+                }
+                if (inst->ses.empty()) {
+                    output += "void";
+                }
+                else
+                    for (size_t i = 0; i < inst->ses.size(); i += 2) {
+                        output += ssprintf("%s %s", inst->ses[i+1].c_str(), inst->ses[i+0].c_str());
+                        if (i != inst->ses.size() - 2) output += ", ";
+                    }
                 output += ") {\n";
+                in_proc = true;
             } break;
             case B_PROC_END: {
                 output += "}\n";
+                in_proc = false;
             } break;
             case B_LOAD_SYM: {
                 output += ssprintf("\tregs[%zu] = %s;\n", inst->xs[0], inst->s.c_str());
+            } break;
+            case B_CHE: {
+                output += ssprintf("\tregs[%zu] = regs[%zu] == regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+            } break;
+            case B_JCTI: {
+                output += ssprintf("\tif (regs[%zu]) goto markov%zu;\n", inst->xs[0], i+inst->xs[1]);
+            } break;
+            case B_JUCI: {
+                output += ssprintf("\tgoto markov%zu;\n", i+inst->xs[0]);
             } break;
             case B_SAVE_SYM: {
                 output += ssprintf("\t%s = regs[%zu];\n", inst->s.c_str(), inst->xs[0]);
@@ -293,7 +352,7 @@ namespace Faivy {
             }
         }
         output += "int main() {\n";
-        output += "\t__gen_main();\n";
+        output += "\t__generated_main();\n";
         output += "}\n";
         return output;
     }

@@ -98,6 +98,10 @@ namespace Parser {
         TK_STR,
         TK_NAT,
         TK_PLUS,
+        TK_MINUS,
+        TK_ASTERISK,
+        TK_RSLASH,
+        TK_PERCENT,
         TK_SEMICOLON,
         TK_2COLON,
         TK_COLON,
@@ -120,6 +124,10 @@ namespace Parser {
         AK_STR,
         AK_NUM,
         AK_SUM,
+        AK_SUB,
+        AK_MUL,
+        AK_DIV,
+        AK_MODDIV,
         AK_CPP,
         AK_CALL,
         AK_PROC,
@@ -127,7 +135,9 @@ namespace Parser {
         AK_FIELD,
         AK_BC,
         AK_RUN,
-        AK_IF
+        AK_IF,
+        AK_WHILE,
+        AK_RETURN
     };
     struct Ast {
         AstKind kind;
@@ -155,6 +165,12 @@ namespace Parser {
 #define vector_extend(a, b) (a).insert((a).end(), (b).begin(), (b).end())
 
 namespace Compiler {
-    void compile(std::vector<Faivy::ByteCodeInst> *prog, Parser::Ast ast, std::unordered_map<std::string, size_t> *procs, std::vector<uint8_t> *static_data, std::string cfunc);
+    struct CompileContext {
+        std::vector<Faivy::ByteCodeInst> *prog;
+        std::unordered_map<std::string, size_t> *procs;
+        std::vector<uint8_t> *static_data;
+        std::string cfunc;
+    };
+    void compile(Parser::Ast ast, CompileContext cc);
 }
 

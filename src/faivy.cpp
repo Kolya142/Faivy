@@ -1,5 +1,8 @@
 #include <faivy.hpp>
-
+#include <assert.h>
+extern "C" { // Don't worry.
+#include "mp_min.h"
+}
 #define slicefs(t, s) Faivy::Slice<t>(s, sizeof(s)/sizeof(t))
 
 std::string read_all(const char *fn) {
@@ -16,7 +19,28 @@ std::string read_all(const char *fn) {
     return s;
 }
 
-int main(int argc, char **argv) {
+extern "C" int mp_user_rebuild(int argc, char **argv) {
+    static const char *SRC[] = {"src/faivy.cpp", "src/core.cpp", "src/parser.cpp", "src/compiler.cpp"};
+    static const size_t SRC_SIZE = sizeof(SRC)/sizeof(*SRC);
+    #define OCPP "ccache clang++"
+    #define CPP "clang++"
+    #define CPPFLAGS "-I./include -g -O3"
+    #define BIN "./bin"
+    bool vv = false;
+
+    if (argc >= 5 && !strcmp(argv[4], "vv")) {
+        for (size_t i = 0; i < SRC_SIZE; ++i)
+            assert(!mp_systemf(OCPP " -c -DVERY_VERBOSE " CPPFLAGS " %s -o " BIN "/_%zu.o", SRC[i], i));
+    }
+    else {
+        for (size_t i = 0; i < SRC_SIZE; ++i)
+            assert(!mp_systemf(OCPP " -c " CPPFLAGS " %s -o " BIN "/_%zu.o", SRC[i], i));
+    }
+    assert(!mp_systemf(CPP " " CPPFLAGS " " BIN "/_*.o bin/mp_min.o -o " BIN "/faivy"));
+    return 0;
+}
+
+extern "C" int mp_user_main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <Faivy source file>\n", argv[0]);
         exit(1);
@@ -35,7 +59,7 @@ int main(int argc, char **argv) {
     std::vector<Faivy::ByteCodeInst> insts;
     std::unordered_map<std::string, size_t> procs;
     std::vector<uint8_t> static_data;
-    Compiler::compile(&insts, ast, &procs, &static_data, "<top>");
+    Compiler::compile(ast, {&insts, &procs, &static_data, "<top>"});
 #ifdef VERY_VEBOSE
     for (auto inst : insts) {
         std::cout << Faivy::bc_names[inst.kind] << " `" << inst.s << "` ";
@@ -50,8 +74,8 @@ int main(int argc, char **argv) {
     fclose(output);
     char *ofn0 = strdup(argv[1]);
     ofn0[strlen(ofn0)-sizeof(".faivy")+1] = 0;
-    std::cout << Faivy::ssprintf("[RUNNING] cc %s -o %s -fno-pie -fno-pic -no-pie\n", ofn, ofn0);
-    system(Faivy::ssprintf("cc %s -o %s -fno-pie -fno-pic -no-pie\n", ofn, ofn0).c_str());
+    std::cout << Faivy::ssprintf("[RUNNING] cc %s -o %s -Racoon-args\n", ofn, ofn0);
+    system(Faivy::ssprintf("cc %s -o %s -fno-pie -fno-pic -no-pie -Wno-int-conversion\n", ofn, ofn0).c_str());
     free(ofn);
     free(ofn0);
     return 0;

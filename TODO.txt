@@ -1,28 +1,26 @@
-[ ] - not even tried
-[P] - in progress
-[B] - very bad
-[!] - not too needed now
-[x] - done
+Extern function declarations/C integration. (NEEDS type system)
+Unhardcode print, print_int functions.
+Fix error with invalid Token::s.
+Add more compile context.
+Add variables.
+Add type system.
+Auto forward declaration.
+Add bytecode assembler for bytecode debugging.
+Add type casting.
+Add binary &
+Add binary |
+Add binary &&
+Add binary ||
+Add binary ^
+Add binary <<
+Add binary >>
+Add binary <<<
+Add binary >>>
+Add unary !
+Add unary ~
+Add unary +
+Add unary -
+Add unary *
+Add unary &
+Add lexpr.
 
-
-[x] functions
-[B] calling
-[B] type checking
-[!] Generics
-[P] Examples
-[x] while
-[!] for
-[ ] enums
-[x] more serious target than C
-[x] #import
-[!] smart #import
-[!] #assert
-[!] macros
-[!] namespacing
-[P] stdlib
-[P] unary ops
-[P] better error/warning reporting
-[!] better inline LLVM
-[!] inline assembly
-[P] auto forward declaration
-[x] defer

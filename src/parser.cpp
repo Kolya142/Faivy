@@ -1,4 +1,5 @@
 #include <faivy.hpp>
+#include <assert.h>
 
 namespace Parser {
     const char *tkn[] = {
@@ -6,6 +7,10 @@ namespace Parser {
         "TK_STR",
         "TK_NAT",
         "TK_PLUS",
+        "TK_MINUS",
+        "TK_ASTERISK",
+        "TK_RSLASH",
+        "TK_PERCENT",
         "TK_SEMICOLON",
         "TK_2COLON",
         "TK_COLON",
@@ -22,6 +27,10 @@ namespace Parser {
         "AK_STR",
         "AK_NUM",
         "AK_SUM",
+        "AK_SUB",
+        "AK_MUL",
+        "AK_DIV",
+        "AK_MODDIV",
         "AK_CPP",
         "AK_CALL",
         "AK_PROC",
@@ -29,8 +38,11 @@ namespace Parser {
         "AK_FIELD",
         "AK_BC",
         "AK_RUN",
-        "AK_IF"
+        "AK_IF",
+        "AK_WHILE",
+        "AK_RETURN"
     };
+    
     std::string Token::to_string() {
         return Faivy::ssprintf("Token<%s>(\"%s\", %d:%d)", tkn[kind], s.c_str(), row, col);
     }
@@ -130,6 +142,31 @@ namespace Parser {
                 ++col;
                 ++code;
             } break;
+            case '-': {
+                toks.push_back(Token{TK_MINUS, "", row, col});
+                ++col;
+                ++code;
+            } break;
+            case '*': {
+                toks.push_back(Token{TK_ASTERISK, "", row, col});
+                ++col;
+                ++code;
+            } break;
+            case '/': {
+                if (code[1] == '/') {
+                    while (*code++ != '\n');
+                    ++row;
+                    col = 0;
+                }
+                toks.push_back(Token{TK_RSLASH, "", row, col});
+                ++col;
+                ++code;
+            } break;
+            case '%': {
+                toks.push_back(Token{TK_PERCENT, "", row, col});
+                ++col;
+                ++code;
+            } break;
             case ';': {
                 toks.push_back(Token{TK_SEMICOLON, "", row, col});
                 ++col;
@@ -224,7 +261,6 @@ namespace Parser {
                 toks = arg.rest;
                 if (toks.start[0].kind == TK_COMMA) {
                     toks = skip(toks, TK_COMMA);
-                    break;
                 }
                 else if (toks.start[0].kind == TK_RPAR) {
                     toks = skip(toks, TK_RPAR);
@@ -254,12 +290,30 @@ namespace Parser {
         PR pr_prim = parse_primary(toks);
         if (!pr_prim.is_the) return pr_prim;
         toks = pr_prim.rest;
-        while (toks.size >= 2 && toks.start[0].kind == TK_PLUS) {
+        while (toks.size >= 2 && toks.start[0].kind >= TK_PLUS && toks.start[0].kind <= TK_PERCENT) { // TODO: upd it
+            auto op = toks.start[0].kind;
             toks = toks.skip();
             PR rhs = parse_primary(toks);
             if (!rhs.is_the) return rhs;
             toks = rhs.rest;
-            pr_prim = PR{rhs.rest, Ast{AK_SUM, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+            switch (op) {
+            case TK_PLUS:
+                pr_prim = PR{rhs.rest, Ast{AK_SUM, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+                break;
+            case TK_MINUS:
+                pr_prim = PR{rhs.rest, Ast{AK_SUB, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+                break;
+            case TK_ASTERISK:
+                pr_prim = PR{rhs.rest, Ast{AK_MUL, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+                break;
+            case TK_RSLASH:
+                pr_prim = PR{rhs.rest, Ast{AK_DIV, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+                break;
+            case TK_PERCENT:
+                pr_prim = PR{rhs.rest, Ast{AK_MODDIV, pr_prim.ast.row, pr_prim.ast.col, {pr_prim.ast, rhs.ast}}, true};
+                break;
+            default: assert(0 && "WTF?");
+            }
         }
         return pr_prim;
     }
@@ -305,9 +359,30 @@ namespace Parser {
             return pr;
         }
         if (toks.size >= 2 && toks.start[0].kind == TK_ID && toks.start[0].s == "if") {
-            PR cond = parse_rexpr(toks);
+            size_t row = toks.start[0].row;
+            size_t col = toks.start[0].col;
+            PR cond = parse_rexpr(toks.skip());
             PR block = parse_stmt(cond.rest);
-            return PR{block.rest, Ast{AK_IF, toks.start[0].row, toks.start[0].col, {cond.ast, block.ast}}, true};
+            toks = block.rest;
+            if (toks.size >= 1 && toks.start[0].kind == TK_ID && toks.start[0].s == "else") {
+                toks = toks.skip();
+                PR block2 = parse_stmt(toks);
+                return PR{block2.rest, Ast{AK_IF, row, col, {cond.ast, block.ast, block2.ast}}, true};
+            }
+            return PR{toks, Ast{AK_IF, row, col, {cond.ast, block.ast}}, true};
+        }
+        if (toks.size >= 2 && toks.start[0].kind == TK_ID && toks.start[0].s == "while") {
+            PR cond = parse_rexpr(toks.skip());
+            PR block = parse_stmt(cond.rest);
+            return PR{block.rest, Ast{AK_WHILE, toks.start[0].row, toks.start[0].col, {cond.ast, block.ast}}, true};
+        }
+        if (toks.size >= 2 && toks.start[0].kind == TK_ID && toks.start[0].s == "return") {
+            PR pr_rexpr = parse_rexpr(toks.skip());
+            if (pr_rexpr.is_the) {
+                pr_rexpr.rest = skip(pr_rexpr.rest, TK_SEMICOLON);
+                return PR{pr_rexpr.rest, {AK_RETURN, toks.start[0].row, toks.start[0].col, {pr_rexpr.ast}}, true};
+            }
+            return pr_rexpr;
         }
         PR pr_proc = parse_proc(toks);
         if (pr_proc.is_the) return pr_proc;

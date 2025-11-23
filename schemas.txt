@@ -1,3 +1,0 @@
-Code -> Tokens -> Ast -> IR -> LLVM-IR
-                          |
-			  -> Interpreter
