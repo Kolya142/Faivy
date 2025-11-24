@@ -1,0 +1,29 @@
+t0fn001 :: (a s32) {
+    printf("Hello, %d!\n", a+42);
+}
+
+t0fn003 :: (a s32) {
+    while a {
+        printf("%d\n", a);
+        // #cpp "--a;";
+        a = a - 1;
+    }
+}
+
+t0fn002 :: (a bool) {
+    printf("Programming, cup of tea No.%d!\n", #cpp "mtemp(69-42)" + 10);
+    #run print("Hi, from comptime!\n");
+    if a printf("%d!\n`%s`\n", #run 640*2+820, jk());
+    else printf("a=false; skipping\n");
+}
+
+t01 :: () {    
+    printf("__________\nt0fn001(69);\n");
+    t0fn001(69);
+    printf("__________\nt0fn002(true);\n");
+    t0fn002(true);
+    printf("__________\nt0fn002(false);\n");
+    t0fn002(false);
+    printf("__________\nt0fn003(5);\n");
+    t0fn003(5);
+}

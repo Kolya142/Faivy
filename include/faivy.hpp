@@ -11,6 +11,36 @@
 #define CFLAGS "-O3"
 #define CLIBS ""
 
+namespace Alloc {
+    struct Context {
+        void *start;
+        size_t cap, used;
+        Context(size_t cap=6*1024);
+        void *alloc(size_t size);
+        size_t save();
+        void restore(size_t v);
+        char *tprintf(const char *fmt, ...);
+        ~Context();
+    };
+    template<typename T, Context *ctx>
+    struct ContextAllocator {
+        // using value_type = T;
+
+        ContextAllocator() = default;
+        
+        template<typename Td, Context *Cd>
+        constexpr ContextAllocator(const ContextAllocator<Td, Cd>&) {}
+
+        T* allocate(size_t size) {
+            return (T*)ctx->alloc(size);
+        }
+
+        void deallocate(T* ptr, size_t size) noexcept {
+        }
+    };
+    extern Context ctx_strings;
+}
+
 namespace Faivy {
     enum ByteCodeInstKind {
         B_MOVI,
@@ -111,6 +141,7 @@ namespace Parser {
         TK_RCB,
         TK_COMMA,
         TK_HASH,
+        TK_EQ,
     };
     struct Token {
         TokenKind kind;
@@ -121,6 +152,7 @@ namespace Parser {
     std::vector<Token> lexer(const char *code);
     enum AstKind {
         AK_RID,
+        AK_LID,
         AK_STR,
         AK_NUM,
         AK_SUM,
@@ -156,6 +188,7 @@ namespace Parser {
     PR parse_primary(Faivy::Slice<Token> toks);
     Faivy::Slice<Token> skip(Faivy::Slice<Token> toks, TokenKind tk);
     PR parse_rexpr(Faivy::Slice<Token> toks);
+    PR parse_lexpr(Faivy::Slice<Token> toks);
     PR parse_proc(Faivy::Slice<Token> toks);
     PR parse_stmt(Faivy::Slice<Token> toks);
     PR parse_block(Faivy::Slice<Token> toks);

@@ -5,6 +5,8 @@ extern "C" { // Don't worry.
 }
 #define slicefs(t, s) Faivy::Slice<t>(s, sizeof(s)/sizeof(t))
 
+Alloc::Context Alloc::ctx_strings;
+
 std::string read_all(const char *fn) {
     FILE *fptr = fopen(fn, "rb");
     fseek(fptr, 0, SEEK_END);
@@ -20,7 +22,7 @@ std::string read_all(const char *fn) {
 }
 
 extern "C" int mp_user_rebuild(int argc, char **argv) {
-    static const char *SRC[] = {"src/faivy.cpp", "src/core.cpp", "src/parser.cpp", "src/compiler.cpp"};
+    static const char *SRC[] = {"src/faivy.cpp", "src/core.cpp", "src/parser.cpp", "src/memory.cpp", "src/compiler.cpp"};
     static const size_t SRC_SIZE = sizeof(SRC)/sizeof(*SRC);
     #define OCPP "ccache clang++"
     #define CPP "clang++"
@@ -74,8 +76,8 @@ extern "C" int mp_user_main(int argc, char **argv) {
     fclose(output);
     char *ofn0 = strdup(argv[1]);
     ofn0[strlen(ofn0)-sizeof(".faivy")+1] = 0;
-    std::cout << Faivy::ssprintf("[RUNNING] cc %s -o %s -Racoon-args\n", ofn, ofn0);
-    system(Faivy::ssprintf("cc %s -o %s -fno-pie -fno-pic -no-pie -Wno-int-conversion\n", ofn, ofn0).c_str());
+    std::cout << Alloc::ctx_strings.tprintf("[RUNNING] cc %s -o %s -Racoon-args\n", ofn, ofn0);
+    system(Alloc::ctx_strings.tprintf("cc %s -o %s -fno-pie -fno-pic -no-pie -Wno-int-conversion\n", ofn, ofn0));
     free(ofn);
     free(ofn0);
     return 0;

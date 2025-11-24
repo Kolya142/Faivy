@@ -200,8 +200,9 @@ namespace Faivy {
         output += "#define mtemp(x) {regs[0] = (uint64_t)(x);}\n";
         output += "#define pop (stack[--sp])\n";
         output += "uint8_t static_data[] = {";
+        size_t css = Alloc::ctx_strings.save();
         for (size_t i = 0; i < static_data.size; ++i) {
-            output += ssprintf("0x%02X", static_data.start[i]);
+            output += Alloc::ctx_strings.tprintf("0x%02X", static_data.start[i]);
             if (i < static_data.size - 1) {
                 output += ", ";
             }
@@ -212,15 +213,15 @@ namespace Faivy {
         bool in_proc = false;
         for (size_t i = 0; i < cs; ++i) {
             if (in_proc)
-                output += ssprintf("\tmarkov%zu:;\n", i);
+                output += Alloc::ctx_strings.tprintf("\tmarkov%zu:;\n", i);
             ByteCodeInst *inst = &code.start[i];
             if (prev_row != inst->row) {
-                // output += ssprintf(".line %zu \"first.faivy\"\n", inst->row);
+                // output += Alloc::ctx_strings.tprintf(".line %zu \"first.faivy\"\n", inst->row);
                 prev_row = inst->row;
             }
             switch (inst->kind) {
             case B_MOVI: {
-                output += ssprintf("\tregs[%zu] = %zu;\n", inst->xs[0], inst->xs[1]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = %zu;\n", inst->xs[0], inst->xs[1]);
             } break;
             case B_CALL: {
                 if (inst->s == "print") {
@@ -228,30 +229,30 @@ namespace Faivy {
                         fprintf(stderr, "Error: print() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += ssprintf("\tmtemp(printf(\"%%s\", (const char *)regs[%zu]));\n", inst->xs[0]);
+                    output += Alloc::ctx_strings.tprintf("\tmtemp(printf(\"%%s\", (const char *)regs[%zu]));\n", inst->xs[0]);
                 }
                 else if (inst->s == "print_int") {
                     if (inst->xs.size() != 1) {
                         fprintf(stderr, "Error: print_int() function requires 1 arguments.");
                         exit(1);
                     }
-                    output += ssprintf("\tmtemp(printf(\"%%zu\", regs[%zu]));\n", inst->xs[0]);
+                    output += Alloc::ctx_strings.tprintf("\tmtemp(printf(\"%%zu\", regs[%zu]));\n", inst->xs[0]);
                 }
                 else {
                     output += "\t{\n";
                     if (inst->xs[0]) {
                         output += "\t\tsize_t ";
                         for (size_t i = 0; i < inst->xs[0]; ++i) {
-                            output += ssprintf("a%zu = pop", i);
+                            output += Alloc::ctx_strings.tprintf("a%zu = pop", i);
                             if (i != inst->xs[0] - 1) {
                                 output += ", ";
                             }
                         }
                         output += ";\n";
                     }
-                    output += ssprintf("\t\tmtemp(%s(", inst->s.c_str());
+                    output += Alloc::ctx_strings.tprintf("\t\tmtemp(%s(", inst->s.c_str());
                     for (size_t i = 0; i < inst->xs[0]; ++i) {
-                        output += ssprintf("a%zu", i);
+                        output += Alloc::ctx_strings.tprintf("a%zu", i);
                         if (i != inst->xs[0] - 1) {
                             output += ", ";
                         }
@@ -270,54 +271,54 @@ namespace Faivy {
                 assert(0 && "TODO: CALL(R,ABS)");
             } break;
             case B_RET: {
-                output += ssprintf("\treturn regs[%zu];\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\treturn regs[%zu];\n", inst->xs[0]);
             } break;
             case B_PUSHDSO: {
-                output += ssprintf("\tpush(static_data+%zu);\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tpush(static_data+%zu);\n", inst->xs[0]);
             } break;
             case B_PUSH: {
-                output += ssprintf("\tpush(regs[%zu]);\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tpush(regs[%zu]);\n", inst->xs[0]);
             } break;
             case B_PUSHI: {
-                output += ssprintf("\tpush(%zu);\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tpush(%zu);\n", inst->xs[0]);
             } break;
             case B_GSP: {
-                output += ssprintf("\tregs[%zu] = sp;\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = sp;\n", inst->xs[0]);
             } break;
             case B_SSP: {
-                output += ssprintf("\tsp = regs[%zu];\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tsp = regs[%zu];\n", inst->xs[0]);
             } break;
             case B_ADD: {
-                output += ssprintf("\tregs[%zu] = regs[%zu]+regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu]+regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_SUB: {
-                output += ssprintf("\tregs[%zu] = regs[%zu]-regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu]-regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_MUL: {
-                output += ssprintf("\tregs[%zu] = regs[%zu]*regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu]*regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_DIV: {
-                output += ssprintf("\tregs[%zu] = regs[%zu]/regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu]/regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_MOD: {
-                output += ssprintf("\tregs[%zu] = regs[%zu]%regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu]%regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_POP: {
-                output += ssprintf("\tregs[%zu] = pop;\n", inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = pop;\n", inst->xs[0]);
             } break;
             case B_PROC_START: {
                 if (inst->s == "main") {
                     output += "int __generated_main(";
                 }
                 else {
-                    output += ssprintf("size_t %s(", inst->s.c_str());
+                    output += Alloc::ctx_strings.tprintf("size_t %s(", inst->s.c_str());
                 }
                 if (inst->ses.empty()) {
                     output += "void";
                 }
                 else
                     for (size_t i = 0; i < inst->ses.size(); i += 2) {
-                        output += ssprintf("%s %s", inst->ses[i+1].c_str(), inst->ses[i+0].c_str());
+                        output += Alloc::ctx_strings.tprintf("%s %s", inst->ses[i+1].c_str(), inst->ses[i+0].c_str());
                         if (i != inst->ses.size() - 2) output += ", ";
                     }
                 output += ") {\n";
@@ -328,22 +329,22 @@ namespace Faivy {
                 in_proc = false;
             } break;
             case B_LOAD_SYM: {
-                output += ssprintf("\tregs[%zu] = %s;\n", inst->xs[0], inst->s.c_str());
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = %s;\n", inst->xs[0], inst->s.c_str());
             } break;
             case B_CHE: {
-                output += ssprintf("\tregs[%zu] = regs[%zu] == regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
+                output += Alloc::ctx_strings.tprintf("\tregs[%zu] = regs[%zu] == regs[%zu];\n", inst->xs[0], inst->xs[1], inst->xs[2]);
             } break;
             case B_JCTI: {
-                output += ssprintf("\tif (regs[%zu]) goto markov%zu;\n", inst->xs[0], i+inst->xs[1]);
+                output += Alloc::ctx_strings.tprintf("\tif (regs[%zu]) goto markov%zu;\n", inst->xs[0], i+inst->xs[1]);
             } break;
             case B_JUCI: {
-                output += ssprintf("\tgoto markov%zu;\n", i+inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\tgoto markov%zu;\n", i+inst->xs[0]);
             } break;
             case B_SAVE_SYM: {
-                output += ssprintf("\t%s = regs[%zu];\n", inst->s.c_str(), inst->xs[0]);
+                output += Alloc::ctx_strings.tprintf("\t%s = regs[%zu];\n", inst->s.c_str(), inst->xs[0]);
             } break;
             case B_CPP: {
-                output += ssprintf("\t%s\n", inst->s.c_str());
+                output += Alloc::ctx_strings.tprintf("\t%s\n", inst->s.c_str());
             } break;
             default: {
                 fprintf(stderr, "Unknown opcode: %s!\n", bc_names[inst->kind]);
@@ -351,6 +352,7 @@ namespace Faivy {
             } break;
             }
         }
+        Alloc::ctx_strings.restore(css);
         output += "int main() {\n";
         output += "\t__generated_main();\n";
         output += "}\n";

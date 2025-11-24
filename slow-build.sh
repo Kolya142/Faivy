@@ -3,7 +3,7 @@ set -e
 CC="cc"
 CPP="clang++"
 CPFLAGS="-I./include -g -O3"
-SRC="src/faivy.cpp src/core.cpp src/parser.cpp src/compiler.cpp bin/mp_min.o"
+SRC="src/faivy.cpp src/core.cpp src/parser.cpp src/compiler.cpp src/memory.cpp bin/mp_min.o"
 BIN="./bin"
 
 mkdir -p $BIN
