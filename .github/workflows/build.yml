@@ -12,6 +12,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install ccache
+      run: apt install ccache
     - name: slow-build.sh
       run: bash slow-build.sh
     - name: mp-rebuild
