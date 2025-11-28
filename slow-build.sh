@@ -15,6 +15,9 @@ $CC -c -DMP_IMPLEMENTATION -x c src/mp_min.h -o bin/mp_min.o
 
 if [ "@"$1 = "@vv" ]; then
     time $CPP $CPFLAGS -DVERY_VEBOSE $SRC -o $BIN/faivy;
+else if [ "@"$1 = "@ci" ]; then
+    time $CPP $CPFLAGS -DCI $SRC -o $BIN/faivy;
 else
     time $CPP $CPFLAGS $SRC -o $BIN/faivy;
+fi
 fi

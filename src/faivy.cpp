@@ -24,10 +24,14 @@ std::string read_all(const char *fn) {
 extern "C" int mp_user_rebuild(int argc, char **argv) {
     static const char *SRC[] = {"src/faivy.cpp", "src/core.cpp", "src/parser.cpp", "src/memory.cpp", "src/compiler.cpp"};
     static const size_t SRC_SIZE = sizeof(SRC)/sizeof(*SRC);
-    #define OCPP "ccache clang++"
-    #define CPP "clang++"
-    #define CPPFLAGS "-I./include -g -O3"
-    #define BIN "./bin"
+#ifndef CI
+#define OCPP "ccache clang++"
+#else
+#define OCPP "clang++"
+#endif
+#define CPP "clang++"
+#define CPPFLAGS "-I./include -g -O3"
+#define BIN "./bin"
     bool vv = false;
 
     if (argc >= 5 && !strcmp(argv[4], "vv")) {
